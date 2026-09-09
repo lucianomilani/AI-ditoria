@@ -588,7 +588,7 @@
    * PORTED FUNCTION (verbatim from docs/security-audit/studio/lib/report-derive.mjs)
    * ===================================================================== */
   function findingKey(f) {
-    return `${f.file}:${f.line}:${f.id}`;
+    return `${f.file}:${f.line}`;
   }
   function diffFindings(runA, runB) {
     const findingsA = runA.findings || [];

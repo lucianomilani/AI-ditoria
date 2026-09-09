@@ -31,7 +31,7 @@ export function groupRecommendations(findings) {
 }
 
 function findingKey(f) {
-  return `${f.file}:${f.line}:${f.id}`
+  return `${f.file}:${f.line}`
 }
 
 export function diffFindings(runA, runB) {

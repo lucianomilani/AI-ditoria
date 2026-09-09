@@ -68,21 +68,39 @@ test('diffFindings: a finding present only in runB is new', () => {
   assert.deepEqual(result.unchanged, [])
 })
 
-test('diffFindings: same file:line re-flagged with a different id in the later run counts as unchanged, not fixed+new', () => {
+test('diffFindings: same file:line re-flagged with a different id in the later run counts as unchanged (file:line is identity, ids are unstable across runs)', () => {
   const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
   const runB = { findings: [{ id: 'F3', file: 'a.ts', line: 5, severity: 'critica' }] }
   const result = diffFindings(runA, runB)
-  assert.equal(result.fixed.length, 1)
-  assert.equal(result.fixed[0].id, 'F1')
-  assert.equal(result.new.length, 1)
-  assert.equal(result.new[0].id, 'F3')
-  assert.deepEqual(result.unchanged, [])
+  assert.deepEqual(result.fixed, [])
+  assert.deepEqual(result.new, [])
+  assert.equal(result.unchanged.length, 1)
+  assert.equal(result.unchanged[0].id, 'F3')
 })
 
-test('diffFindings: matches by exact file:line:id triple, ignoring unrelated fields', () => {
+test('diffFindings: matches by file:line, ignoring id and other unrelated fields', () => {
   const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta', desc: 'old wording' }] }
   const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta', desc: 'new wording' }] }
   const result = diffFindings(runA, runB)
   assert.equal(result.unchanged.length, 1)
   assert.equal(result.unchanged[0].desc, 'new wording')
+})
+
+test('diffFindings: a run document with no findings key is treated as having zero findings', () => {
+  const runA = {}
+  const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
+  const result = diffFindings(runA, runB)
+  assert.deepEqual(result.fixed, [])
+  assert.equal(result.new.length, 1)
+  assert.deepEqual(result.unchanged, [])
+})
+
+test('diffFindings: two distinct findings colliding at the same file:line count as one match (accepted trade-off of dropping id from the key)', () => {
+  const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta', desc: 'issue A' }] }
+  const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'critica', desc: 'issue B' }] }
+  const result = diffFindings(runA, runB)
+  assert.deepEqual(result.fixed, [])
+  assert.deepEqual(result.new, [])
+  assert.equal(result.unchanged.length, 1)
+  assert.equal(result.unchanged[0].desc, 'issue B')
 })
