@@ -1,5 +1,5 @@
 export const CATEGORY_NAMES = {
-  1: 'Banco sem tranca (isolamento)',
+  1: 'Banco sem tranca (isolamento e injeção)',
   2: 'Permissão definida no navegador',
   3: 'IDOR',
   4: 'Chaves expostas',
