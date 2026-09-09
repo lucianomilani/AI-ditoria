@@ -560,10 +560,35 @@
     } catch {}
   }
 
+  const CHECKLIST_STATE_KEY = 'audit-studio-checklist';
+
+  /** Confirm-checkbox state for the printable validation checklist, keyed by
+   * `${slug}/${auditDate}/${findingId}` → boolean. Per-browser only, same
+   * ceiling as loadHiddenSlugs/saveHiddenSlugs — there is no backend to
+   * sync this across machines or people. */
+  function loadChecklistState() {
+    try {
+      return JSON.parse(localStorage.getItem(CHECKLIST_STATE_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function saveChecklistState(state) {
+    try {
+      localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify(state));
+    } catch {}
+  }
+
+  function checklistKey(slug, auditDate, findingId) {
+    return `${slug}/${auditDate}/${findingId}`;
+  }
+
   const state = {
     manifest: null, slugs: [], runsBySlug: {}, runErrors: {},
     openSlug: null, activeSlug: null, activeRunId: null,
     hiddenSlugs: loadHiddenSlugs(),
+    checklistState: loadChecklistState(),
   };
 
   async function loadManifest() {
@@ -1023,14 +1048,23 @@
   }
 
   function buildValidationChecklist(doc) {
-    const tbody = el('tbody', {}, doc.findings.map(f => el('tr', {}, [
-      el('td', { class: 'checklist-check' }, [el('input', { type: 'checkbox', 'aria-label': `Achado confirmado: ${f.id}` })]),
-      el('td', {}, [el('span', { class: 'chip', style: `background:${SEVERITY_COLORS[f.severity]}`, text: SEVERITY_LABELS[f.severity] })]),
-      el('td', { class: 'fileref' }, [el('span', { class: 'fid', text: f.id }), ' · ', `${f.file}:${f.line}`, ' — ', f.desc]),
-      el('td', { text: f.fix }),
-      el('td', { class: 'checklist-notes' }),
-      el('td', { class: 'checklist-notes' }),
-    ])));
+    const tbody = el('tbody', {}, doc.findings.map(f => {
+      const key = checklistKey(state.activeSlug, doc.audit_date, f.id);
+      const checkbox = el('input', { type: 'checkbox', 'aria-label': `Achado confirmado: ${f.id}` });
+      checkbox.checked = Boolean(state.checklistState[key]);
+      checkbox.addEventListener('change', () => {
+        state.checklistState[key] = checkbox.checked;
+        saveChecklistState(state.checklistState);
+      });
+      return el('tr', {}, [
+        el('td', { class: 'checklist-check' }, [checkbox]),
+        el('td', {}, [el('span', { class: 'chip', style: `background:${SEVERITY_COLORS[f.severity]}`, text: SEVERITY_LABELS[f.severity] })]),
+        el('td', { class: 'fileref' }, [el('span', { class: 'fid', text: f.id }), ' · ', `${f.file}:${f.line}`, ' — ', f.desc]),
+        el('td', { text: f.fix }),
+        el('td', { class: 'checklist-notes' }),
+        el('td', { class: 'checklist-notes' }),
+      ]);
+    }));
 
     const table = el('table', { class: 'checklist-table' }, [
       el('thead', {}, [el('tr', {}, [
