@@ -466,7 +466,10 @@
    * STATE + DB LOADING
    * ===================================================================== */
 
-  const state = { db: null, slugs: [], runsBySlug: {}, openSlug: null, activeSlug: null, activeRunId: null };
+  const state = {
+    db: null, slugs: [], runsBySlug: {}, runErrors: {},
+    openSlug: null, activeSlug: null, activeRunId: null,
+  };
 
   async function loadProjectSlugs() {
     if (!state.db) return [];
@@ -500,27 +503,46 @@
       ]);
       if (state.openSlug === slug) {
         const runs = state.runsBySlug[slug] || [];
-        const runList = el('div', { class: 'run-list' }, runs.length
-          ? runs.map(run => el('button', {
-              class: 'run-btn', type: 'button',
-              'data-active': String(state.activeSlug === slug && state.activeRunId === run._id),
-              onclick: () => selectRun(slug, run),
-            }, [
-              el('span', { class: 'run-date', text: run.audit_date || run._id }),
-              el('span', { class: 'run-meta', text: `${(run.findings || []).length} achados` }),
-            ]))
-          : [el('div', { class: 'sidebar-note', text: 'Sem auditorias.' })]);
+        let runList;
+        if (state.runErrors[slug]) {
+          runList = el('div', { class: 'run-list' }, [
+            el('div', { class: 'sidebar-note', text: 'Erro ao carregar auditorias.' }),
+          ]);
+        } else {
+          runList = el('div', { class: 'run-list' }, runs.length
+            ? runs.map(run => el('button', {
+                class: 'run-btn', type: 'button',
+                'data-active': String(state.activeSlug === slug && state.activeRunId === run._id),
+                onclick: () => selectRun(slug, run),
+              }, [
+                el('span', { class: 'run-date', text: run.audit_date || run._id }),
+                el('span', { class: 'run-meta', text: `${(run.findings || []).length} achados` }),
+              ]))
+            : [el('div', { class: 'sidebar-note', text: 'Sem auditorias.' })]);
+        }
         item.appendChild(runList);
       }
       list.appendChild(item);
     }
   }
 
+  /** Loads (or reuses the cached) run list for `slug`, tracking success/failure in
+   * `state.runsBySlug`/`state.runErrors` so callers never need their own try/catch. */
+  async function ensureRunsLoaded(slug) {
+    if (state.runsBySlug[slug] && !state.runErrors[slug]) return state.runsBySlug[slug];
+    try {
+      state.runsBySlug[slug] = await loadRuns(slug);
+      delete state.runErrors[slug];
+    } catch (err) {
+      state.runsBySlug[slug] = [];
+      state.runErrors[slug] = true;
+    }
+    return state.runsBySlug[slug];
+  }
+
   async function toggleProject(slug) {
     state.openSlug = state.openSlug === slug ? null : slug;
-    if (state.openSlug && !state.runsBySlug[slug]) {
-      state.runsBySlug[slug] = await loadRuns(slug);
-    }
+    if (state.openSlug) await ensureRunsLoaded(slug);
     renderSidebar();
   }
 
@@ -533,11 +555,15 @@
 
   async function selectProjectDefault(slug) {
     state.openSlug = slug;
-    if (!state.runsBySlug[slug]) state.runsBySlug[slug] = await loadRuns(slug);
-    const runs = state.runsBySlug[slug];
+    const runs = await ensureRunsLoaded(slug);
     renderSidebar();
-    if (runs.length > 0) selectRun(slug, runs[0]);
-    else renderEmptyReport(`"${slug}" ainda não tem auditorias registadas.`);
+    if (state.runErrors[slug]) {
+      renderEmptyReport('Não foi possível carregar as auditorias deste projeto. Tente novamente mais tarde.');
+    } else if (runs.length > 0) {
+      selectRun(slug, runs[0]);
+    } else {
+      renderEmptyReport(`"${slug}" ainda não tem auditorias registadas.`);
+    }
   }
 
   /* =====================================================================
@@ -841,6 +867,19 @@
 
   document.getElementById('print-btn').addEventListener('click', () => window.print());
 
+  /** Renders the "can't reach the database" degraded state in both the sidebar and the
+   * report area. Used whether `use('db')` resolves null (capability not granted at all)
+   * or a granted db's first call rejects (not_granted/revoked/resource_exhausted/
+   * quota_exceeded/unavailable — the DB contract is explicit that these arrive on the
+   * call, not on `use()`) — either way the viewer must see this, not a frozen
+   * "A carregar…" placeholder. */
+  function showDbUnavailable(message) {
+    const list = document.getElementById('project-list');
+    list.innerHTML = '';
+    list.appendChild(el('div', { class: 'sidebar-empty', text: 'Base de dados indisponível nesta vista.' }));
+    renderEmptyReport(message);
+  }
+
   async function main() {
     let db = null;
     try {
@@ -850,14 +889,15 @@
     }
     state.db = db;
     if (!db) {
-      document.getElementById('project-list').innerHTML = '';
-      document.getElementById('project-list').appendChild(
-        el('div', { class: 'sidebar-empty', text: 'Base de dados indisponível nesta vista.' })
-      );
-      renderEmptyReport('Não foi possível ligar à base de dados do artefacto nesta vista.');
+      showDbUnavailable('Não foi possível ligar à base de dados do artefacto nesta vista.');
       return;
     }
-    state.slugs = await loadProjectSlugs();
+    try {
+      state.slugs = await loadProjectSlugs();
+    } catch (err) {
+      showDbUnavailable('Não foi possível carregar os projetos auditados. Tente recarregar a página.');
+      return;
+    }
     renderSidebar();
     if (state.slugs.length > 0) {
       await selectProjectDefault(state.slugs[0]);
@@ -866,6 +906,9 @@
     }
   }
 
-  main();
+  // Safety net: any failure not already caught above (a bug, or a rejection from a path
+  // we didn't anticipate) still lands on the degraded state instead of an unhandled
+  // rejection that leaves the page stuck on its initial "A carregar…" placeholders.
+  main().catch(() => showDbUnavailable('Ocorreu um erro inesperado ao carregar o Audit Report Studio.'));
 })();
 </script>
