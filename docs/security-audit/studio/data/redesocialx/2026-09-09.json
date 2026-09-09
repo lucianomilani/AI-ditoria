@@ -1,0 +1,683 @@
+{
+  "project": "RedeSocialX",
+  "audit_date": "2026-09-09",
+  "scope": "Auditoria completa ao monorepo apps/api (FastAPI + SQLAlchemy + Alembic + Celery) e apps/web (React 19 + TypeScript + Vite), incluindo deps.py, todos os 22 ficheiros de rotas, todos os services chamados por essas rotas, componentes de frontend com renderizacao de HTML/rich text, ficheiros de deploy (Dockerfile, docker-compose.yml, docker-compose.prod.yml), requirements.txt/package.json, e compliance RGPD (consentimento, direitos dos titulares, retencao, processadores). Auditoria feita ficheiro-a-ficheiro por 5 agentes especializados em paralelo (isolamento/permissoes/IDOR; secrets/auth/rate-limit; XSS/upload; SSRF/deps/IaC/disclosure; RGPD), cada um cobrindo TODOS os handlers do respetivo dominio, sem amostragem.",
+  "stack": [
+    { "layer": "Backend", "detail": "FastAPI + SQLAlchemy 2.0 + Alembic (Python 3.12), rotas em apps/api/app/api/routes/, servicos em apps/api/app/services/" },
+    { "layer": "Base de dados", "detail": "PostgreSQL (Postgres 18 no compose), schema gerido exclusivamente por migracoes Alembic, sem create_all" },
+    { "layer": "Autenticacao", "detail": "JWT HS256 via python-jose (bearer-only, sem cookies), PBKDF2-HMAC-SHA256 (390k iteracoes) para password hashing" },
+    { "layer": "Worker", "detail": "Celery + Redis para publicacao agendada e tarefas de limpeza (oauth_states, approval_links)" },
+    { "layer": "Credenciais", "detail": "CredentialVault (Fernet/cryptography) cifra credenciais de redes sociais, IA e notificacoes antes de persistir" },
+    { "layer": "Frontend", "detail": "React 19 + TypeScript + Vite, sem React Router (navegacao por 'currentView'), DOMPurify + TipTap para rich text" },
+    { "layer": "Deploy", "detail": "Docker/Podman Compose, produção em Coolify (Contabo VPS), sem CI configurado (decisao documentada no CLAUDE.md)" }
+  ],
+  "methodology_note": "Cada uma das 12 categorias fixas foi mapeada para o mecanismo concreto desta stack antes de auditar: (1) isolamento de tenant = filtro workspace_id nas queries SQLAlchemy (nao ha RLS, e um projeto FastAPI, nao Supabase); (2) permissao no navegador = gates de UI (isSuperadmin, canManageConnections, isOwner) em apps/web/src cruzados com as dependencias FastAPI require_workspace_owner/require_superadmin/require_social_admin_or_superadmin em apps/api/app/api/deps.py; (3) IDOR = todos os handlers que recebem um id (post_id, media_id, account_id, credential_id, etc) e fazem get/update/delete, verificados um a um quanto a checagem de posse; (4) chaves expostas = segredos em codigo-fonte, .env, docker-compose, defaults do pydantic Settings, e validacao de arranque contra placeholders; (5) XSS = dangerouslySetInnerHTML/innerHTML no frontend e geracao de HTML/SVG no backend sem escaping, com teste empirico do sanitizador nh3; (6) autenticacao/sessoes = hashing, JWT, MFA, tokens de reset; (7) SSRF = qualquer URL fornecida pelo utilizador (WordPress site_url) pedida pelo servidor; (8) integridade de escrita = modelo de CORS/cookies para CSRF e normalizacao de nomes de ficheiro para upload; (9) rate limiting = cobertura do SlidingWindowLimiter em endpoints sensiveis; (10) dependencias/IaC = requirements.txt, package.json, Dockerfiles, docker-compose*.yml; (11) fuga de informacao = exception handlers, headers de seguranca, endpoint de health; (12) RGPD = consentimento, direitos dos titulares, retencao, dados sensiveis, decisao automatizada, transparencia, notificacao de violacao, processadores. Todos os 22 ficheiros de rotas do backend e os respetivos services foram lidos integralmente, nao por amostragem.",
+  "categories": [
+    { "id": 1, "name": "Banco sem tranca (isolamento)", "maturity": 92, "applicable": true, "na_reason": null },
+    { "id": 2, "name": "Permissão definida no navegador", "maturity": 95, "applicable": true, "na_reason": null },
+    { "id": 3, "name": "IDOR", "maturity": 95, "applicable": true, "na_reason": null },
+    { "id": 4, "name": "Chaves expostas", "maturity": 78, "applicable": true, "na_reason": null },
+    { "id": 5, "name": "Inputs sem tratamento (XSS)", "maturity": 93, "applicable": true, "na_reason": null },
+    { "id": 6, "name": "Autenticação e sessões", "maturity": 70, "applicable": true, "na_reason": null },
+    { "id": 7, "name": "SSRF", "maturity": 60, "applicable": true, "na_reason": null },
+    { "id": 8, "name": "Integridade de escrita (CSRF/path/upload)", "maturity": 90, "applicable": true, "na_reason": null },
+    { "id": 9, "name": "Rate limiting e força bruta", "maturity": 45, "applicable": true, "na_reason": null },
+    { "id": 10, "name": "Dependências e IaC", "maturity": 68, "applicable": true, "na_reason": null },
+    { "id": 11, "name": "Vazamento de informação", "maturity": 65, "applicable": true, "na_reason": null },
+    { "id": 12, "name": "Compliance RGPD", "maturity": 35, "applicable": true, "na_reason": null }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "category": 1,
+      "severity": "informativa",
+      "file": "apps/api/app/services/publication_service.py",
+      "line": 88,
+      "cwe": "CWE-863",
+      "owasp": "A01:2021 - Broken Access Control",
+      "desc": "Lookup de fallback de media inline por ID sem filtro workspace_id.",
+      "code": "inline_ids = extract_inline_media_asset_ids(post.body)\nmissing_ids = [asset_id for asset_id in inline_ids if asset_id not in attached_assets]\nif missing_ids:\n    extra_assets = self.db.scalars(select(MediaAsset).where(MediaAsset.id.in_(missing_ids)))",
+      "why": "A query busca MediaAsset por ID puro, sem MediaAsset.workspace_id == post.workspace_id. Nao e explorada hoje porque post.body so pode conter IDs ja validados como pertencentes ao workspace no momento de escrita (post_service.py valida via _load_media antes de gravar), mas esta funcao nao tem defesa em profundidade propria.",
+      "impact": "Se o invariante de escrita for alguma vez contornado por um caminho de codigo futuro, esta query passa a expor media de outro tenant durante a publicacao.",
+      "fix": "Adicionar MediaAsset.workspace_id == post.workspace_id ao .where() desta query, mesmo sendo redundante hoje.",
+      "acceptance": [
+        "Query de fallback filtra explicitamente por workspace_id",
+        "Teste cobre um post com inline_id pertencente a outro workspace e confirma que nao e devolvido"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Nao explorável atualmente: requer que o invariante de validacao em post_service.py (_load_media) seja contornado por um caminho de codigo futuro."
+    },
+    {
+      "id": "F2",
+      "category": 4,
+      "severity": "alta",
+      "file": "apps/api/app/core/config.py",
+      "line": 19,
+      "cwe": "CWE-798",
+      "owasp": "A02:2021 - Cryptographic Failures",
+      "desc": "Defaults de SECRET_KEY e CREDENTIAL_ENCRYPTION_KEY sao strings publicamente conhecidas (visiveis neste proprio repositorio).",
+      "code": "secret_key: str = \"change-this-api-secret\"\n...\ncredential_encryption_key: str = \"generate-with-python-scripts-generate_key-py\"",
+      "why": "Qualquer script/teste que instancie Settings() diretamente sem passar pelo lifespan da app (que chama validate_startup_secrets) fica com um segredo de assinatura JWT publico. Isto e CWE-798/CWE-1188: o valor por omissao e um segredo hardcoded e conhecido.",
+      "impact": "Se o guard de arranque for alguma vez removido, contornado, ou nao aplicado num caminho alternativo (ex.: um worker/script standalone), qualquer pessoa pode forjar um JWT valido para qualquer user_id, incluindo superadmin, usando a string 'change-this-api-secret' — takeover total.",
+      "fix": "Manter a validacao de arranque (ja existe, ver pontos fortes) mas remover por completo os defaults reais e obrigar Settings a exigir a env var (sem default), falhando cedo em qualquer ponto de entrada, nao so no lifespan do FastAPI.",
+      "acceptance": [
+        "Settings() sem SECRET_KEY/CREDENTIAL_ENCRYPTION_KEY no ambiente falha ao instanciar, nao apenas no lifespan",
+        "Scripts standalone (cli.py, workers) tambem sao cobertos pela validacao"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Mitigado na pratica por validate_startup_secrets (config.py:149-165) chamado no lifespan de main.py:27 — nao explorável no caminho normal de arranque da API."
+    },
+    {
+      "id": "F3",
+      "category": 4,
+      "severity": "media",
+      "file": "apps/api/app/core/config.py",
+      "line": 29,
+      "cwe": "CWE-1188",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "desc": "postgres_password tem um default fraco e publicamente conhecido sem guard de arranque equivalente ao de SECRET_KEY.",
+      "code": "postgres_password: str = \"rede_social_techx_dev\"",
+      "why": "validate_startup_secrets so cobre secret_key e credential_encryption_key; nao existe verificacao equivalente para postgres_password.",
+      "impact": "Um deploy de producao que esqueca de definir POSTGRES_PASSWORD arranca silenciosamente com uma password fraca e conhecida para a base de dados, sem qualquer erro de arranque.",
+      "fix": "Estender validate_startup_secrets para rejeitar o default de postgres_password quando environment == 'production'.",
+      "acceptance": [
+        "Arranque em producao com POSTGRES_PASSWORD nao definido falha explicitamente",
+        "Mensagem de erro identifica a variavel em falta"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F4",
+      "category": 5,
+      "severity": "informativa",
+      "file": "apps/web/src/lib/api.ts",
+      "line": 93,
+      "cwe": "CWE-522",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "desc": "O token JWT de autenticacao e guardado em localStorage em vez de um cookie httpOnly.",
+      "code": "localStorage.setItem(TOKEN_STORAGE_KEY, token);",
+      "why": "localStorage e acessivel a qualquer script que corra no mesmo origin, incluindo um XSS. Nao foi encontrado nenhum vetor de XSS explorável nesta auditoria (ver categoria 5, DOMPurify aplicado corretamente em todos os pontos de renderizacao), mas esta escolha de armazenamento aumenta o raio de impacto de qualquer XSS futuro para um takeover de sessao completo.",
+      "impact": "Caso surja um XSS futuro (ex.: numa nova feature que renderize HTML sem passar por PostBodyHtml/DOMPurify), o impacto sobe de 'defacement local' para 'exfiltracao de token e takeover de conta'.",
+      "fix": "Considerar mover o token para um cookie httpOnly + SameSite=Strict com protecao CSRF associada, ou aceitar o tradeoff explicitamente documentando que a superficie de XSS e controlada por DOMPurify em todos os pontos de entrada de HTML.",
+      "acceptance": [
+        "Decisao documentada explicitamente (aceitar risco ou migrar para cookie httpOnly)"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Nao ha XSS conhecido nesta aplicacao para encadear com este ponto — e um multiplicador de impacto, nao uma vulnerabilidade isolada."
+    },
+    {
+      "id": "F5",
+      "category": 6,
+      "severity": "alta",
+      "file": "apps/api/app/core/security.py",
+      "line": 46,
+      "cwe": "CWE-613",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "desc": "Nao existe revogacao de JWT: tokens emitidos antes de uma mudanca/reset de password continuam validos ate expirar (12h).",
+      "code": "def create_access_token(subject: str, impersonated_workspace_id: str | None = None) -> str:\n    expires_at = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)\n    payload: dict[str, str | datetime] = {\"sub\": subject, \"exp\": expires_at}",
+      "why": "Nao existe jti, token_version, ou qualquer lista de revogacao. change_my_password (user_service.py:41-45) e reset_password (password_reset_service.py:82-103) atualizam password_hash mas nao invalidam tokens ja emitidos.",
+      "impact": "Se um atacante ja tiver um token roubado, a mudanca de password pela vitima (a mitigacao padrao esperada) nao o expulsa da conta — o token roubado continua valido ate 12h depois.",
+      "fix": "Adicionar uma coluna token_version ou password_changed_at ao User, incluir no payload do JWT, e validar em decode_access_token/get_current_user; incrementar/atualizar no change_password e reset_password. Alternativa: tokens de curta duracao (15 min) + refresh token revogavel num store server-side (Redis, ja disponivel via Celery).",
+      "acceptance": [
+        "Um token emitido antes de uma mudanca de password deixa de ser aceite depois da mudanca",
+        "Teste cobre: login -> mudar password -> pedido com token antigo -> 401"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Requer que um token ja tenha sido comprometido antes da mudanca de password (ex.: via dispositivo partilhado, log, ou breach anterior) para ter impacto pratico."
+    },
+    {
+      "id": "F6",
+      "category": 6,
+      "severity": "media",
+      "file": "apps/api/app/api/deps.py",
+      "line": 1,
+      "cwe": "CWE-308",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "desc": "Nao existe MFA para nenhum tipo de conta, incluindo owner e superadmin (que pode impersonar qualquer workspace).",
+      "code": "# grep -rniE \"mfa|totp|2fa|otp_secret\" apps/api/app apps/web/src -> 0 resultados",
+      "why": "User.is_superadmin e account_type == 'owner' sao os papeis de maior privilegio do sistema (superadmin pode impersonar qualquer workspace via claims.impersonated_workspace_id) e sao protegidos apenas por password, igual a qualquer editor.",
+      "impact": "Uma credencial de superadmin comprometida (phishing, reuso de password, etc) resulta em compromisso total da plataforma, atraves de todos os tenants, sem segundo fator a bloquear.",
+      "fix": "Adicionar MFA (TOTP) obrigatorio para is_superadmin e, idealmente, para account_type == 'owner'; considerar tambem allowlist de IP para rotas de admin/impersonacao.",
+      "acceptance": [
+        "Conta superadmin exige segundo fator no login",
+        "Fluxo de setup/recovery de MFA documentado"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F7",
+      "category": 6,
+      "severity": "baixa",
+      "file": "apps/api/app/api/routes/auth.py",
+      "line": 67,
+      "cwe": "CWE-307",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "desc": "Endpoint de mudanca de password autenticado (PUT /me/password) nao tem rate limiting.",
+      "code": "@router.put(\"/me/password\", status_code=status.HTTP_204_NO_CONTENT)\ndef change_my_password(\n    payload: PasswordChangeRequest,\n    current_user: User = Depends(get_current_user),\n    db: Session = Depends(get_db),\n) -> None:\n    UserService(db).change_password(current_user, payload)",
+      "why": "change_password verifica a current_password antes de aceitar a nova, mas sem rate limit um atacante com um token roubado (ex.: via XSS ou dispositivo partilhado) pode tentar adivinhar a password atual sem limite de tentativas.",
+      "impact": "Um token JWT roubado permite brute-force da password atual para depois mudar a password e trancar o dono legitimo fora da conta.",
+      "fix": "Adicionar um limiter por utilizador analogo ao usado no password reset (ex.: reutilizar SlidingWindowLimiter).",
+      "acceptance": [
+        "Endpoint recusa apos N tentativas erradas de current_password num intervalo",
+        "Teste cobre o limite"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Requer um token JWT ja valido (roubado) — o vetor de aquisicao do token em si nao foi encontrado nesta auditoria."
+    },
+    {
+      "id": "F8",
+      "category": 7,
+      "severity": "media",
+      "file": "apps/api/app/services/providers/wordpress.py",
+      "line": 222,
+      "cwe": "CWE-918",
+      "owasp": "A10:2021 - Server-Side Request Forgery",
+      "desc": "A validacao de site_url do WordPress so bloqueia hosts literais (localhost/127.0.0.1/::1/*.local), nao IPs privados/link-local nem DNS rebinding.",
+      "code": "def _normalize_site_url(value: str) -> str:\n    ...\n    hostname = (parsed.hostname or \"\").lower()\n    local_host = hostname in {\"localhost\", \"127.0.0.1\", \"::1\"} or hostname.endswith(\".local\")\n    if parsed.scheme not in ({\"http\", \"https\"} if local_host else {\"https\"}):\n        raise ProviderPublishError(\"O WordPress tem de usar HTTPS (HTTP so e permitido em desenvolvimento local).\")",
+      "why": "Um membro autenticado de um workspace configura este site_url (ao ligar/testar/publicar uma conta WordPress) e o proprio servidor faz o pedido HTTP para esse host. Nao ha resolucao de DNS + verificacao de que o IP resultante nao e privado/loopback/link-local (ex.: 169.254.169.254 metadata, 10.0.0.0/8, 192.168.0.0/16).",
+      "impact": "SSRF autenticado por qualquer tenant capaz de configurar uma conta WordPress — sondagem de rede interna, ou pedidos direcionados a servicos internos que falem HTTPS.",
+      "fix": "Resolver o hostname e rejeitar se qualquer endereco resolvido for privado/loopback/link-local/multicast (ipaddress.ip_address(...).is_private/is_loopback/is_link_local) antes de conectar, e reverificar a cada hop de redirect (ja desativados) e no momento do connect real do socket para fechar a janela de DNS rebinding.",
+      "acceptance": [
+        "Uma URL que resolva para 169.254.169.254 ou 10.x/172.16-31.x/192.168.x e rejeitada",
+        "Teste cobre DNS rebinding (host publico que resolve para IP privado)"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Mitigado parcialmente por follow_redirects=False (wordpress.py:252) e exigencia de HTTPS para hosts nao-locais, o que reduz mas nao elimina a superficie interna alcancavel."
+    },
+    {
+      "id": "F9",
+      "category": 7,
+      "severity": "baixa",
+      "file": "apps/api/app/services/providers/wordpress.py",
+      "line": 260,
+      "cwe": "CWE-200",
+      "owasp": "A01:2021 - Broken Access Control",
+      "desc": "O campo 'message' da resposta JSON do host WordPress alvo e refletido verbatim para o tenant em caso de erro, amplificando F8.",
+      "code": "if response.status_code >= 400:\n    message = payload.get(\"message\") if isinstance(payload, dict) else None\n    code = payload.get(\"code\") if isinstance(payload, dict) else response.status_code\n    raise ProviderPublishError(\n        f\"WordPress recusou o pedido ao tentar {action}: {message or 'pedido recusado'} ({code}).\"\n    )",
+      "why": "Combinado com F8, se um tenant apontar site_url para um servico HTTPS interno que devolva um corpo JSON com campo 'message', esse conteudo e exfiltrado atraves desta mensagem de erro.",
+      "impact": "Divulgacao do conteudo de respostas de servicos internos atraves de um SSRF.",
+      "fix": "Nao refletir campos JSON arbitrarios de hosts nao validados; registar detalhe no servidor e devolver mensagem generica ao cliente.",
+      "acceptance": [
+        "Mensagem de erro exposta ao cliente nao contem o campo 'message' bruto de hosts fora da lista de sites WordPress ja validados"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Depende de F8 para ter impacto pratico (e o vetor de exfiltracao do resultado do SSRF)."
+    },
+    {
+      "id": "F10",
+      "category": 9,
+      "severity": "critica",
+      "file": "apps/api/app/api/routes/auth.py",
+      "line": 42,
+      "cwe": "CWE-307",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "desc": "O endpoint de login nao tem qualquer rate limiting.",
+      "code": "@router.post(\"/login\", response_model=TokenResponse)\ndef login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:\n    user = db.scalar(select(User).where(User.email == payload.email.lower()))\n    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):\n        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=\"Credenciais invalidas.\")\n    return TokenResponse(access_token=create_access_token(user.id), user=UserRead.model_validate(user))",
+      "why": "Nenhuma dependencia de rate limit esta associada a esta rota, ao contrario dos endpoints de password reset e approval-links que usam explicitamente dependencies=[Depends(...rate_limit)]. E o endpoint mais atacado de qualquer sistema de autenticacao.",
+      "impact": "Brute-force / credential stuffing ilimitado contra qualquer email conhecido de qualquer tenant, incluindo contas owner/superadmin — combinado com a ausencia de MFA (F6), isto e uma via direta para compromisso total de conta.",
+      "fix": "Adicionar um limiter por IP+email reutilizando o SlidingWindowLimiter ja existente (ex.: 5-10 tentativas / 15 min), com dependencies=[Depends(login_rate_limit)]; considerar tambem lockout/backoff por utilizador apos N falhas consecutivas.",
+      "acceptance": [
+        "Apos N tentativas falhadas do mesmo IP/email num intervalo, o endpoint devolve 429",
+        "Teste automatizado cobre o limite"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Explorável hoje sem qualquer pre-condicao — o endpoint e publico e o unico controlo e o hashing da password (que nao impede tentativas ilimitadas)."
+    },
+    {
+      "id": "F11",
+      "category": 9,
+      "severity": "media",
+      "file": "apps/api/app/api/routes/auth.py",
+      "line": 18,
+      "cwe": "CWE-307",
+      "owasp": "A04:2021 - Insecure Design",
+      "desc": "O endpoint de registo nao tem rate limiting.",
+      "code": "@router.post(\"/register\", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)\ndef register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:\n    existing_user = db.scalar(select(User).where(User.email == payload.email.lower()))\n    if existing_user is not None:\n        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=\"Email ja registado.\")",
+      "why": "Sem rate limit, permite (a) criacao em massa de contas/workspaces (cada registo cria um Workspace novo — exaustao de recursos), (b) enumeracao de emails via o 409 sem qualquer travagem.",
+      "impact": "Abuso de recursos e enumeracao de contas existentes em escala.",
+      "fix": "Aplicar rate limit por IP reutilizando SlidingWindowLimiter.",
+      "acceptance": [
+        "Registos em excesso a partir do mesmo IP num intervalo sao recusados com 429"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F12",
+      "category": 9,
+      "severity": "baixa",
+      "file": "apps/api/app/api/routes/oauth.py",
+      "line": 44,
+      "cwe": "CWE-307",
+      "owasp": "A04:2021 - Insecure Design",
+      "desc": "O callback OAuth (/api/oauth/{provider}/callback) nao tem rate limiting.",
+      "code": "@router.get(\"/{provider}/callback\")\ndef complete_oauth_connection(\n    provider: SocialProvider,\n    code: str | None = Query(default=None),\n    state: str | None = Query(default=None),\n    ...\n) -> RedirectResponse:",
+      "why": "Rota publica sem qualquer limiter que faz escrita/leitura na BD (OAuthService(db).complete(...)) por cada pedido. O impacto e menor que o login porque code/state sao valores de alta entropia emitidos pelo provider, nao segredos adivinhaveis pelo utilizador, mas continua exposta a abuso volumetrico.",
+      "impact": "Exaustao de recursos (carga na BD) atraves de pedidos repetidos a este endpoint publico.",
+      "fix": "Aplicar um limiter generico por IP, consistente com o resto da superficie publica (public_approvals.py ja faz isto bem).",
+      "acceptance": [
+        "Pedidos em excesso ao callback a partir do mesmo IP sao limitados"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F13",
+      "category": 10,
+      "severity": "baixa",
+      "file": "apps/api/requirements.txt",
+      "line": 7,
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "desc": "python-jose e fixado apenas por um intervalo (>=3.3,<4.0), sem lock file, permitindo tecnicamente um resolve numa versao vulneravel a CVE-2024-33663/CVE-2024-33664 (corrigidas apenas na 3.4.0).",
+      "code": "python-jose[cryptography]>=3.3,<4.0",
+      "why": "Sem um lock file (pip-compile/poetry.lock), o resolve exato pode variar entre ambientes/builds. A versao efetivamente instalada neste ambiente e 3.5.0 (corrigida), confirmado via 'pip freeze', mas o manifesto por si so nao garante isso em builds futuros.",
+      "impact": "Um build futuro poderia silenciosamente resolver uma versao anterior a 3.4.0, reintroduzindo confusao de algoritmo JWT ou DoS por descompressao JWE.",
+      "fix": "Subir o minimo para python-jose>=3.4.0,<4.0 e/ou adicionar um lock file (pip-compile requirements.in) para builds reprodutiveis.",
+      "acceptance": [
+        "requirements.txt exige >=3.4.0",
+        "Existe um lock file versionado para o backend"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Nao explorável hoje: a versao instalada neste ambiente (3.5.0) ja inclui a correcao, e o decode_access_token do projeto ja fixa algorithms=['HS256'] explicitamente (mitigacao adicional independente da versao da lib)."
+    },
+    {
+      "id": "F14",
+      "category": 10,
+      "severity": "media",
+      "file": "apps/api/Dockerfile",
+      "line": 14,
+      "cwe": "CWE-494",
+      "owasp": "A08:2021 - Software and Data Integrity Failures",
+      "desc": "O build da imagem Docker descarrega e executa um instalador remoto via curl | sh sem verificacao de checksum/assinatura nem pin de versao.",
+      "code": "RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \\\n    && install -m 0755 /root/.local/bin/codex /usr/local/bin/codex \\\n    && codex --version",
+      "why": "Risco classico de supply chain: se o URL for comprometido, sequestrado por DNS, ou servir um payload diferente, o build passa a incluir codigo nao verificado com privilegios de build. Torna tambem a imagem nao reprodutivel (a versao instalada e sempre a 'latest' do dia do build).",
+      "impact": "Comprometimento silencioso da imagem de producao via supply chain, ou builds inconsistentes entre ambientes.",
+      "fix": "Fixar uma release especifica do Codex CLI, verificar um checksum/assinatura publicados antes do install, ou vendorizar o binario.",
+      "acceptance": [
+        "O Dockerfile fixa uma versao explicita do instalador",
+        "O checksum/assinatura e verificado antes de instalar"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F15",
+      "category": 11,
+      "severity": "baixa",
+      "file": "apps/api/app/api/routes/oauth.py",
+      "line": 58,
+      "cwe": "CWE-209",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "desc": "O callback OAuth reflete o texto bruto de qualquer excecao para o browser via redirect.",
+      "code": "try:\n    result = OAuthService(db).complete(provider, state, code)\nexcept HTTPException as exc:\n    return _redirect(\"error\", str(exc.detail))\nexcept Exception as exc:  # noqa: BLE001 - provider callbacks can fail in provider-specific ways.\n    return _redirect(\"error\", f\"Falha ao ligar conta: {exc}\")",
+      "why": "_redirect() coloca esta string num parametro de query de um redirect 302 (?oauth=error&message=...) que o frontend renderiza como mensagem ao utilizador. str(exc) de qualquer tipo de excecao pode incluir detalhe interno (internals do httpx, texto de KeyError/AttributeError inesperado, fragmentos do payload do provider).",
+      "impact": "Fuga de detalhe interno de baixo risco para o proprio utilizador que tentou a ligacao OAuth (nao e cross-tenant).",
+      "fix": "Registar a excecao completa no servidor (logger.exception) e redirecionar com uma mensagem generica fixa.",
+      "acceptance": [
+        "Mensagens de erro no redirect OAuth sao sempre de uma lista fixa/generica, nunca str(exc) livre"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F16",
+      "category": 11,
+      "severity": "informativa",
+      "file": "apps/api/app/services/publication_service.py",
+      "line": 108,
+      "cwe": "CWE-209",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "desc": "Erros inesperados na publicacao refletem str(exc) diretamente no registo do target, visivel ao tenant.",
+      "code": "except Exception as exc:  # noqa: BLE001 - external providers can fail in many forms.\n    self._mark_target_error(post, target, f\"Erro inesperado: {exc}\")\n    return",
+      "why": "Mesmo padrao de F15 mas no fluxo de publicacao; o texto e visto apenas pelo proprio tenant (nao e fuga cross-tenant), mas continua a expor detalhe interno em vez de uma mensagem curada.",
+      "impact": "Fuga de detalhe interno de baixo risco, dentro do proprio tenant.",
+      "fix": "Registar a excecao completa no servidor e guardar uma mensagem generica curada no target.error.",
+      "acceptance": [
+        "target.error nunca contem str(exc) livre para excecoes nao tratadas explicitamente"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F17",
+      "category": 11,
+      "severity": "media",
+      "file": "apps/api/app/main.py",
+      "line": 35,
+      "cwe": "CWE-693",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "desc": "Nenhum header de seguranca (CSP, HSTS, X-Content-Type-Options, X-Frame-Options) e definido a nivel da aplicacao.",
+      "code": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins=settings.allowed_origins,\n    allow_credentials=True,\n    allow_methods=[\"*\"],\n    allow_headers=[\"*\"],\n)",
+      "why": "main.py so adiciona CORSMiddleware; nao ha TrustedHostMiddleware nem qualquer middleware de headers de seguranca. apps/web/nginx.conf tambem nao define add_header para nenhum destes headers. A protecao depende inteiramente do que o proxy gerido do Coolify injetar, o que nao e verificavel a partir deste repositorio.",
+      "impact": "Sem estes headers explicitos ao nivel da aplicacao, a app fica dependente de configuracao de infraestrutura externa ao repo para protecao contra clickjacking (X-Frame-Options/CSP frame-ancestors), MIME-sniffing (X-Content-Type-Options), e downgrade de HTTPS (HSTS).",
+      "fix": "Adicionar um middleware Starlette simples em main.py (ou add_header no nginx.conf do frontend) definindo X-Content-Type-Options: nosniff, X-Frame-Options: DENY (ou frame-ancestors 'none' via CSP), uma CSP base, e Strict-Transport-Security.",
+      "acceptance": [
+        "Resposta da API inclui os 4 headers mencionados independentemente da configuracao do proxy externo"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "R1",
+      "category": 12,
+      "severity": "alta",
+      "file": "apps/api/app/api/routes/auth.py",
+      "line": 18,
+      "cwe": "CWE-1021",
+      "owasp": "N/A - RGPD",
+      "desc": "Nao existe captura de consentimento no registo (nenhum campo terms_accepted/consent, nenhum checkbox no formulario).",
+      "code": "def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:\n    existing_user = db.scalar(select(User).where(User.email == payload.email.lower()))",
+      "why": "RegisterRequest e o modelo User nao tem qualquer campo de consentimento/aceitacao de termos; AuthPanel.tsx nao renderiza nenhum checkbox nem link para termos/privacidade antes do submit.",
+      "impact": "Impossivel demonstrar a uma autoridade de controlo (CNPD) que consentimento foi obtido ou que termos foram aceites, para qualquer processamento que dependa de base legal de consentimento (ex.: emails, usos opcionais de dados).",
+      "fix": "Adicionar checkbox obrigatorio (nao pre-marcado) de aceitacao de Termos/Privacidade em AuthPanel.tsx, persistir terms_accepted_at/privacy_version em User, e registar no register().",
+      "acceptance": [
+        "Registo exige aceitacao explicita de termos",
+        "Timestamp e versao da politica aceite ficam persistidos"
+      ],
+      "rgpd_article": "Art. 6-7",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R2",
+      "category": 12,
+      "severity": "alta",
+      "file": "apps/api/app/api/routes/auth.py",
+      "line": 1,
+      "cwe": "CWE-1021",
+      "owasp": "N/A - RGPD",
+      "desc": "Nao existe nenhum endpoint de exportacao/portabilidade dos dados pessoais do titular.",
+      "code": "# grep -rn \"export|csv|download\" apps/api/app/api/routes apps/api/app/services -> sem correspondencias relevantes",
+      "why": "Nenhum ficheiro de rotas (22 verificados) expoe um endpoint tipo GET /me/export ou equivalente que devolva os dados do utilizador num formato utilizavel.",
+      "impact": "Qualquer pedido de acesso/portabilidade (Art. 15/20) tem de ser respondido manualmente via query direta a BD por um engenheiro — lento, sujeito a erro, sem auditoria.",
+      "fix": "Adicionar GET /api/users/me/export devolvendo perfil, associacao a workspace, posts criados, e historico de publicacao em JSON.",
+      "acceptance": [
+        "Endpoint de auto-exportacao existe e devolve os dados pessoais do titular autenticado"
+      ],
+      "rgpd_article": "Art. 15, Art. 20",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R3",
+      "category": 12,
+      "severity": "alta",
+      "file": "apps/api/app/services/admin_service.py",
+      "line": 277,
+      "cwe": "CWE-1021",
+      "owasp": "N/A - RGPD",
+      "desc": "Nao existe auto-eliminacao de conta; a unica via de eliminacao de workspace (admin-only) desativa o owner em vez de o eliminar/anonimizar, e ha uma inconsistencia entre o FK ON DELETE CASCADE e o comportamento assumido no codigo.",
+      "code": "for editor in editors:\n    self.db.delete(editor)\nworkspace.owner.is_active = False\nself.db.delete(workspace)\nself.db.commit()\nshutil.rmtree(Path(settings.upload_dir) / workspace_id, ignore_errors=True)",
+      "why": "Editores sao hard-deleted e o workspace + dependentes sao hard-deleted, mas o User owner so e desativado (is_active=False) — email, hash de password e nome completo permanecem indefinidamente. A migracao dfd4826c3481 declara users.workspace_id -> workspaces.id com ondelete='CASCADE', o que a nivel de Postgres real cascadearia tambem o delete do owner, contradizendo a linha is_active=False e o teste existente test_admin_service.py que assume o owner sobrevive — nao foi possivel confirmar em runtime contra Postgres real nesta sessao (BD local nao foi arrancada, por politica de nao alterar a BD sem instrucao explicita).",
+      "impact": "Nenhum caminho de auto-servico permite a um titular exercer o direito ao apagamento (Art. 17); mesmo a via administrativa deixa dados identificadores do owner (email, nome) indefinidamente, e ha um comportamento nao verificado/potencialmente inconsistente entre o FK e a logica ORM.",
+      "fix": "Adicionar um fluxo de auto-eliminacao (DELETE /api/auth/me) que elimine ou anonimize (email -> deleted-<uuid>@example.invalid, full_name -> 'Utilizador removido', password_hash aleatorio) o User; decidir e documentar deliberadamente o que deve acontecer ao owner quando um admin elimina um workspace, confirmando o comportamento real do FK CASCADE com 'python -m pytest apps/api/tests/test_admin_service.py -k delete_workspace' contra Postgres real.",
+      "acceptance": [
+        "Existe um endpoint de auto-eliminacao/anonimizacao de conta",
+        "Comportamento do FK CASCADE vs. is_active=False confirmado e consistente contra Postgres real",
+        "Documentacao explicita da politica de retencao/eliminacao do owner"
+      ],
+      "rgpd_article": "Art. 17",
+      "exploitability_notes": "A inconsistencia FK-vs-ORM e evidenciada pelo codigo mas nao foi confirmada em runtime nesta auditoria — requer validacao contra Postgres real antes de decidir a correcao."
+    },
+    {
+      "id": "R4",
+      "category": 12,
+      "severity": "baixa",
+      "file": "apps/api/app/workers/celery_app.py",
+      "line": 16,
+      "cwe": "CWE-459",
+      "owasp": "N/A - RGPD",
+      "desc": "password_reset_tokens nunca sao purgados, apesar de terem expires_at/used_at.",
+      "code": "beat_schedule = {\n    \"publish-due-posts-every-minute\": {...},\n    \"refresh-meta-tokens-daily\": {...},\n    \"cleanup-expired-oauth-states-daily\": {...},\n    \"cleanup-expired-approval-links-hourly\": {...},\n}",
+      "why": "Existem tarefas de limpeza para oauth_states e approval_links, mas nenhuma para PasswordResetToken, apesar do modelo ja ter expires_at (30 min) e used_at.",
+      "impact": "Tokens expirados/usados (cada um ligado a um user_id) acumulam indefinidamente na base de dados — violacao menor do principio de limitacao da conservacao.",
+      "fix": "Adicionar uma tarefa cleanup_expired_password_reset_tokens + entrada no beat_schedule, analoga a delete_expired_oauth_states.",
+      "acceptance": [
+        "Tarefa periodica remove password_reset_tokens expirados/usados com mais de X dias"
+      ],
+      "rgpd_article": "Art. 5(1)(e)",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R5",
+      "category": 12,
+      "severity": "media",
+      "file": "apps/api/app/workers/tasks.py",
+      "line": 1,
+      "cwe": "CWE-459",
+      "owasp": "N/A - RGPD",
+      "desc": "Nao existe politica de retencao para publication_log, media_assets, ou notifications.",
+      "code": "# grep -rn \"retention|TTL|timedelta(days\" apps/api/app/services apps/api/app/models apps/api/app/workers apps/api/app/core -> so approval_link_ttl_days e refresh de tokens Meta",
+      "why": "Nenhuma tarefa em tasks.py envelhece/remove logs de publicacao antigos, media orfa, ou notificacoes lidas antigas.",
+      "impact": "Historico de publicacao e media (que pode incluir fotos de pessoal/produtos, branding) crescem indefinidamente sem justificacao documentada, contrariando o principio de minimizacao/retencao.",
+      "fix": "Definir e implementar uma politica de retencao (ex.: purgar publication_log e media_assets orfa com mais de N meses para workspaces inativos) via tarefa Celery beat.",
+      "acceptance": [
+        "Politica de retencao documentada e implementada como tarefa periodica"
+      ],
+      "rgpd_article": "Art. 5",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R6",
+      "category": 12,
+      "severity": "alta",
+      "file": "apps/web/src",
+      "line": 1,
+      "cwe": "CWE-1021",
+      "owasp": "N/A - RGPD",
+      "desc": "Nao existe politica de privacidade nem termos de servico em nenhum local do repositorio.",
+      "code": "# grep -rni \"privacidade|privacy|termos|terms\" apps/web/src docs/ README.md CLAUDE.md -> sem paginas/conteudo de politica encontrado",
+      "why": "Verificado apps/web/src/components/ (sem PrivacyPolicy.tsx ou equivalente; apps/web/src/pages/ esta vazio de proposito segundo o CLAUDE.md), docs/ (ARCHITECTURE.md, STATUS.md, planos — sem conteudo de privacidade/termos), README.md e CLAUDE.md na raiz.",
+      "impact": "Falta total de transparencia: um titular nao tem forma de saber como os seus dados (email, password, media, tokens OAuth, conteudo gerado por IA) sao processados ou por quanto tempo.",
+      "fix": "Publicar uma pagina de Politica de Privacidade / Termos (conteudo estatico e suficiente) ligada ao ecra de registo (integrando com o checkbox de R1) e a partir de um link de rodape/definicoes na app autenticada.",
+      "acceptance": [
+        "Pagina de privacidade/termos publicada e acessivel a partir do registo e da app autenticada"
+      ],
+      "rgpd_article": "Art. 12-13",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R7",
+      "category": 12,
+      "severity": "media",
+      "file": "apps/api/app/models/admin_impersonation_log.py",
+      "line": 12,
+      "cwe": "CWE-778",
+      "owasp": "N/A - RGPD",
+      "desc": "Infraestrutura de deteccao/registo de incidentes de seguranca muito limitada — so cobre impersonacao de superadmin, sem ended_at, IP, ou outros eventos sensiveis.",
+      "code": "class AdminImpersonationLog(Base):\n    admin_id: Mapped[str]\n    workspace_id: Mapped[str]\n    started_at: Mapped[datetime]",
+      "why": "logging_config.py so suprime o logger do httpx para WARNING (para evitar fuga de segredos em URLs), sem qualquer sink de eventos de seguranca/SIEM. AdminImpersonationLog e o unico modelo de auditoria existente, e so regista inicio de impersonacao, nao falhas de login, alteracoes de credenciais, ou exportacoes em massa.",
+      "impact": "O dever de notificacao em 72h (Art. 33) depende de conseguir detetar e reconstruir um incidente; hoje so e possivel saber que um admin impersonou um workspace, nada mais.",
+      "fix": "Estender o registo de auditoria a falhas de autenticacao, alteracoes de credenciais/API-keys, e acessos em massa a dados; considerar encaminhar logs estruturados para um armazenamento retido e resistente a alteracao.",
+      "acceptance": [
+        "Eventos de seguranca chave (falhas de login, alteracao de credenciais) sao auditados com timestamp e ator"
+      ],
+      "rgpd_article": "Art. 33-34",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R8",
+      "category": 12,
+      "severity": "alta",
+      "file": "apps/api/app/services/content_generation_service.py",
+      "line": 250,
+      "cwe": "CWE-1021",
+      "owasp": "N/A - RGPD",
+      "desc": "Nao existe lista/documentacao formal de subcontratantes (Art. 28) nem registo de DPAs, apesar de dados serem enviados a multiplos processadores terceiros.",
+      "code": "# OpenAI: content_generation_service.py:250, image_generation_service.py:1150\n# Anthropic: content_generation_service.py:302\n# Google Gemini: content_generation_service.py:359-390\n# Meta/Facebook, LinkedIn: services/providers/, oauth_service.py\n# Mailcow SMTP: mailer_service.py",
+      "why": "grep por 'dpa|processor|terceiro|rgpd|gdpr' em docs/ e README.md nao encontrou nenhum registo de processadores ou referencia a DPA. Cada um destes servicos recebe dados pessoais/da empresa (conteudo de posts, emails, credenciais OAuth) por conta do controlador.",
+      "impact": "Sem registo interno de que processadores tem DPA assinado (OpenAI, Anthropic e Google oferecem DPA, mas nao ha evidencia de execucao ou acompanhamento); impossivel responder a um regulador sobre quem processa os dados e sob que salvaguardas.",
+      "fix": "Manter um registo interno de processadores (ex.: docs/dpa-register.md) listando cada processador, finalidade, categorias de dados enviadas, e estado do DPA; refletir a lista de destinatarios na politica de privacidade de R6.",
+      "acceptance": [
+        "Registo de processadores existe e e mantido atualizado",
+        "Politica de privacidade (R6) lista os destinatarios de dados"
+      ],
+      "rgpd_article": "Art. 28",
+      "exploitability_notes": null
+    }
+  ],
+  "strengths": [
+    {
+      "evidence": "apps/api/app/api/deps.py:125-136 (require_superadmin) e :100-111 (require_social_admin_or_superadmin)",
+      "note": "Um token de impersonacao (claims.impersonated_workspace_id != null) e explicitamente rejeitado com 403 nestas dependencias, impedindo que uma sessao de impersonacao alcance acoes admin-only — confirmado aplicado em todos os 15 endpoints de admin.py e em social_admin.py.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "post_service.py, account_service.py, media_service.py, approval_service.py, notification_service.py, dashboard_service.py, oauth_service.py — todos filtram por workspace_id",
+      "note": "Isolamento de tenant aplicado uniformemente na camada de query em todos os caminhos de listagem/pesquisa/exportacao verificados, incluindo credenciais de IA/notificacao com chave composta (workspace_id, provider) que torna o lookup cross-tenant estruturalmente impossivel.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/tests/test_editor_permissions.py",
+      "note": "A matriz de autorizacao (editor vs owner vs superadmin impersonando) e codificada em testes que exercitam rotas reais via TestClient, nao so a dependencia isolada — inclui a excecao deliberada de approval-override ficar restrita a superadmin.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/services/password_reset_service.py:33-48",
+      "note": "request_reset devolve sempre a mesma resposta exista ou nao o email, e adia o envio SMTP para uma BackgroundTask especificamente para evitar um side-channel de timing que revelasse existencia de conta — decisao documentada num comentario inline.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/core/security.py:16-39",
+      "note": "Password hashing usa PBKDF2-HMAC-SHA256 com 390.000 iteracoes (acima da recomendacao OWASP 2023 de >=310k), salt aleatorio de 16 bytes por password, e comparacao em tempo constante (hmac.compare_digest).",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/core/security.py:60-64",
+      "note": "decode_access_token fixa algorithms=['HS256'] explicitamente na chamada a jwt.decode, prevenindo ataques classicos de confusao de algoritmo/alg=none independentemente da versao da biblioteca instalada.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/api/routes/public_approvals.py (todas as rotas) e apps/api/app/api/rate_limit.py:42-49,70-76",
+      "note": "As rotas publicas de aprovacao e os endpoints de password reset tem rate limiting bem desenhado e com racional documentado inline (limite apertado no pedido de reset por disparar email real, mais solto na confirmacao por o token ja ter 256 bits de entropia).",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/web/src/components/PostBodyHtml.tsx:29 e apps/api/app/services/html_content.py:61-78",
+      "note": "DOMPurify e aplicado exatamente no ponto de renderizacao de HTML no frontend (unico dangerouslySetInnerHTML do codebase), e o sanitizador nh3 do backend usa allow-list de tags/atributos verificada empiricamente a remover esquemas javascript:/data:.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/services/image_generation_service.py:913-976 e :253-273",
+      "note": "SVGs gerados por IA e logos carregados pelo utilizador passam por um validador que rejeita elementos/atributos perigosos (script, iframe, on*, javascript:/data:/http(s):/file:, DOCTYPE/ENTITY) antes de serem aceites — defesa solida contra injecao SVG/XML/XXE em conteudo nao confiavel gerado por LLM.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/services/media_service.py:41-89",
+      "note": "O nome de ficheiro de upload nunca e usado para construir o caminho de armazenamento — e sempre substituido por um token aleatorio (token_hex(16)); o nome original so e guardado como metadado de exibicao, eliminando path traversal via nome de ficheiro.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/api/deps.py:12 e apps/web/src/lib/api.ts:111",
+      "note": "Autenticacao e feita exclusivamente via header Authorization: Bearer, sem cookies de sessao — isto reduz estruturalmente o risco de CSRF a quase zero, ja que um pedido cross-site nao consegue forcar o browser a anexar este header.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/core/config.py:149-165 e apps/api/app/main.py:27",
+      "note": "validate_startup_secrets faz a app recusar arrancar se SECRET_KEY ou CREDENTIAL_ENCRYPTION_KEY ainda tiverem o valor placeholder, e CredentialVault repete a mesma verificacao de forma independente (defesa em profundidade).",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "docker-compose.prod.yml (servicos api/worker/beat/web) e apps/api/Dockerfile, apps/web/Dockerfile",
+      "note": "Nenhum servico publica portas de host diretamente em producao (tudo passa pela rede externa do Coolify), imagens base fixadas a versoes especificas (nunca :latest), e todos os servicos tem deploy.resources.limits definidos.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "apps/api/app/services/oauth_service.py:565-568 e services/approval_service.py",
+      "note": "oauth_states e approval_links expiram automaticamente e sao purgados por tarefas Celery beat diarias/horarias — boa pratica de minimizacao aplicada consistentemente nestas duas tabelas.",
+      "applies_to": ["security", "rgpd"]
+    },
+    {
+      "evidence": "apps/api/app/services/admin_service.py:277-285",
+      "note": "A eliminacao de workspace por um admin faz hard-delete real (nao soft-delete) de editores, workspace e dependentes em cascata, incluindo remocao fisica do diretorio de uploads em disco — vai muito alem de uma simples flag de 'inativo'.",
+      "applies_to": ["rgpd"]
+    },
+    {
+      "evidence": "apps/api/app/services/credential_vault.py:12-30",
+      "note": "Todas as credenciais sensiveis (contas sociais, chaves de IA, webhooks de notificacao) sao cifradas com Fernet antes de persistir, e a API so devolve valores mascarados — nunca em claro.",
+      "applies_to": ["security", "rgpd"]
+    },
+    {
+      "evidence": "ruff check apps/api -> All checks passed!; npm audit --production em apps/web -> found 0 vulnerabilities",
+      "note": "Lint estatico do backend e auditoria de dependencias de producao do frontend, correndo nesta auditoria, nao encontraram problemas.",
+      "applies_to": ["security"]
+    }
+  ],
+  "weaknesses": {
+    "security": [
+      "F10: /api/auth/login sem rate limiting (critica) — vetor de brute-force/credential-stuffing imediato",
+      "F5: JWTs nao sao revogados apos mudanca/reset de password",
+      "F6: nenhuma conta, incluindo superadmin, tem MFA",
+      "F8/F9: validacao de site_url do WordPress permite SSRF contra IPs privados/link-local",
+      "F14: instalador remoto sem verificacao de integridade no Dockerfile da API",
+      "F17: ausencia de headers de seguranca (CSP, HSTS, X-Frame-Options, X-Content-Type-Options) ao nivel da aplicacao",
+      "F2/F3: defaults de secret_key/credential_encryption_key/postgres_password sao valores publicamente conhecidos (mitigado parcialmente por validacao de arranque)"
+    ],
+    "rgpd": [
+      "R1: sem captura de consentimento no registo",
+      "R2: sem endpoint de exportacao/portabilidade de dados",
+      "R3: sem auto-eliminacao de conta; eliminacao de workspace por admin so desativa o owner",
+      "R6: sem politica de privacidade/termos publicada em qualquer lugar",
+      "R8: sem registo/documentacao de processadores terceiros e respetivos DPAs",
+      "R5: sem politica de retencao para logs de publicacao, media e notificacoes",
+      "R7: registo de auditoria/deteccao de incidentes limitado a impersonacao de superadmin"
+    ]
+  },
+  "rgpd_panel": [
+    { "id": "consentimento", "topic": "Consentimento (Art. 6-7)", "status": "nao_conforme", "evidence": "Nenhum campo de consentimento em RegisterRequest/User; AuthPanel.tsx sem checkbox de termos (R1)." },
+    { "id": "direitos-titulares", "topic": "Direitos dos titulares (Art. 15-22)", "status": "nao_conforme", "evidence": "Sem endpoint de exportacao (R2); sem auto-eliminacao de conta, owner apenas desativado ao apagar workspace (R3)." },
+    { "id": "minimizacao-retencao", "topic": "Minimização e retenção (Art. 5)", "status": "nao_conforme", "evidence": "oauth_states e approval_links sao purgados automaticamente (pontos fortes), mas password_reset_tokens (R4), publication_log, media_assets e notifications (R5) nao tem politica de retencao." },
+    { "id": "dados-sensiveis", "topic": "Dados sensíveis (Art. 9)", "status": "nao_aplicavel", "evidence": "Modelos User e CompanyProfile nao contem campos de saude, biometria, religiao, etnia, orientacao sexual ou opiniao politica — confirmado por leitura direta de apps/api/app/models/user.py e company_profile.py." },
+    { "id": "decisao-automatizada", "topic": "Decisão automatizada (Art. 22)", "status": "nao_aplicavel", "evidence": "content_generation_service.py e studio_image_service.py geram rascunhos de conteudo de marketing que exigem sempre aprovacao humana via approval_service.py antes de publicar — nao ha decisao automatizada com efeito juridico/significativo sobre uma pessoa." },
+    { "id": "transparencia", "topic": "Transparência (Art. 12-13)", "status": "nao_conforme", "evidence": "Nenhuma pagina de privacidade/termos encontrada em apps/web/src, docs/, README.md ou CLAUDE.md (R6)." },
+    { "id": "notificacao-violacao", "topic": "Notificação de violação (Art. 33-34)", "status": "nao_conforme", "evidence": "AdminImpersonationLog e o unico registo de auditoria existente, sem cobertura de falhas de login ou outros eventos sensiveis (R7)." },
+    { "id": "processadores-terceiros", "topic": "Processadores/terceiros (Art. 28)", "status": "nao_conforme", "evidence": "OpenAI, Anthropic, Google, Meta, LinkedIn, WordPress (sites de clientes) e Mailcow recebem dados pessoais/da empresa sem registo interno de DPA (R8)." }
+  ],
+  "scans": [
+    { "tool": "ruff", "command": "ruff check apps/api", "result": "All checks passed! — nenhum problema de lint/estatico detetado no backend." },
+    { "tool": "npm audit", "command": "npm audit --production (em apps/web)", "result": "found 0 vulnerabilities — nenhuma dependencia de producao do frontend com CVE conhecido nesta data." },
+    { "tool": "pip inspection", "command": "pip freeze | grep -i jose (venv do projeto)", "result": "python-jose 3.5.0 instalado — versao corrigida para CVE-2024-33663/CVE-2024-33664, apesar do requirements.txt permitir tecnicamente >=3.3 (ver F13)." }
+  ],
+  "sbom": [
+    { "name": "fastapi", "version": ">=0.115,<1.0", "type": "production" },
+    { "name": "sqlalchemy", "version": ">=2.0,<3.0", "type": "production" },
+    { "name": "alembic", "version": ">=1.14,<2.0", "type": "production" },
+    { "name": "python-jose[cryptography]", "version": "3.5.0 instalado (requirements.txt: >=3.3,<4.0)", "type": "production — corrigido para CVE-2024-33663/33664, mas floor do manifesto nao garante isso em builds futuros (F13)" },
+    { "name": "cryptography", "version": "49.0.0 instalado (requirements.txt: >=44,<47)", "type": "production" },
+    { "name": "nh3", "version": ">=0.2,<1.0", "type": "production — sanitizador HTML, comportamento verificado empiricamente pelos agentes de auditoria" },
+    { "name": "celery", "version": ">=5.4,<6.0", "type": "production" },
+    { "name": "redis", "version": ">=5.2,<7.0", "type": "production" },
+    { "name": "react", "version": "^19.0.0", "type": "production" },
+    { "name": "dompurify", "version": "^3.4.13", "type": "production — sanitizador XSS do frontend" },
+    { "name": "@tiptap/react", "version": "^3.31.0", "type": "production — editor rich text" }
+  ],
+  "limits": [
+    "Nao foi possivel arrancar/consultar uma instancia Postgres real durante esta auditoria (por politica do projeto de nao alterar a BD sem instrucao explicita), pelo que o comportamento exato do FK ON DELETE CASCADE em users.workspace_id descrito em R3 nao foi confirmado em runtime — apenas evidenciado pelo codigo/migracao.",
+    "Ficheiro .env local (fora de git, corretamente listado em .gitignore) contem segredos reais de producao/dev (OpenAI, Meta) em texto simples no disco de desenvolvimento — nao e um defeito de codigo, mas fica registado como observacao operacional, nao como finding formal.",
+    "Nao foi executado nenhum scanner dinamico (DAST) nem pentest ativo contra uma instancia a correr — a auditoria e inteiramente estatica (leitura de codigo-fonte, configuracao e um scan de lint/dependencias).",
+    "A configuracao real do proxy Coolify em producao (headers de seguranca, TLS) esta fora deste repositorio e nao pode ser verificada diretamente — F17 assume apenas o que e visivel no codigo da aplicacao e no nginx.conf do frontend."
+  ],
+  "issue_groups": [
+    ["F1"],
+    ["F2", "F3"],
+    ["F4"],
+    ["F5"],
+    ["F6"],
+    ["F7"],
+    ["F8", "F9"],
+    ["F10", "F11", "F12"],
+    ["F13"],
+    ["F14"],
+    ["F15", "F16"],
+    ["F17"],
+    ["R1"],
+    ["R2"],
+    ["R3"],
+    ["R4"],
+    ["R5"],
+    ["R6"],
+    ["R7"],
+    ["R8"]
+  ]
+}
