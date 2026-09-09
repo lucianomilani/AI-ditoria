@@ -97,10 +97,11 @@ test('diffFindings: a run document with no findings key is treated as having zer
 
 test('diffFindings: two distinct findings colliding at the same file:line count as one match (accepted trade-off of dropping id from the key)', () => {
   const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta', desc: 'issue A' }] }
-  const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'critica', desc: 'issue B' }] }
+  const runB = { findings: [{ id: 'F2', file: 'a.ts', line: 5, severity: 'critica', desc: 'issue B' }] }
   const result = diffFindings(runA, runB)
   assert.deepEqual(result.fixed, [])
   assert.deepEqual(result.new, [])
   assert.equal(result.unchanged.length, 1)
+  assert.equal(result.unchanged[0].id, 'F2')
   assert.equal(result.unchanged[0].desc, 'issue B')
 })
