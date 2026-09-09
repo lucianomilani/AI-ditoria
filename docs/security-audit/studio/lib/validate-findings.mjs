@@ -19,7 +19,7 @@ export function validateFindings(data) {
     if (!(key in data)) errors.push(`root: missing required key "${key}"`)
   }
 
-  if (data.audit_date && !/^\d{4}-\d{2}-\d{2}$/.test(data.audit_date)) {
+  if (typeof data.audit_date !== 'string' || data.audit_date.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(data.audit_date)) {
     errors.push(`audit_date: "${data.audit_date}" must match YYYY-MM-DD`)
   }
 
@@ -31,14 +31,17 @@ export function validateFindings(data) {
         continue
       }
       seen.add(cat.id)
+      if (cat.name !== CATEGORY_NAMES[cat.id]) {
+        errors.push(`categories[${cat.id}]: name must be "${CATEGORY_NAMES[cat.id]}"`)
+      }
       if (typeof cat.maturity !== 'number' || cat.maturity < 0 || cat.maturity > 100) {
         errors.push(`categories[${cat.id}]: maturity must be a number 0-100`)
       }
       if (typeof cat.applicable !== 'boolean') {
         errors.push(`categories[${cat.id}]: applicable must be a boolean`)
       }
-      if (cat.applicable === false && typeof cat.na_reason !== 'string') {
-        errors.push(`categories[${cat.id}]: na_reason required (string) when applicable is false`)
+      if (cat.applicable === false && (typeof cat.na_reason !== 'string' || cat.na_reason.trim().length === 0)) {
+        errors.push(`categories[${cat.id}]: na_reason required (non-empty string) when applicable is false`)
       }
     }
     for (const id of CATEGORY_IDS) {
@@ -105,7 +108,24 @@ export function validateFindings(data) {
     errors.push('rgpd_panel: expected an array')
   }
 
+  // Structural-only check: each scans[]/sbom[] item must be a non-empty object.
+  // Deliberately lenient on specific keys, since docs/security-audit/studio/samples/notely.json
+  // predates the canonical {tool,command,result}/{name,version,type} shape (reference/schema.md)
+  // and uses an older, different shape that must keep validating.
+  for (const arrName of ['scans', 'sbom']) {
+    if (Array.isArray(data[arrName])) {
+      for (const [i, item] of data[arrName].entries()) {
+        if (typeof item !== 'object' || item === null || Array.isArray(item) || Object.keys(item).length === 0) {
+          errors.push(`${arrName}[${i}]: expected a non-empty object`)
+        }
+      }
+    } else {
+      errors.push(`${arrName}: expected an array`)
+    }
+  }
+
   if (Array.isArray(data.issue_groups)) {
+    const covered = new Map()
     for (const [i, group] of data.issue_groups.entries()) {
       if (!Array.isArray(group) || group.length === 0) {
         errors.push(`issue_groups[${i}]: expected a non-empty array of finding ids`)
@@ -113,7 +133,13 @@ export function validateFindings(data) {
       }
       for (const fid of group) {
         if (!findingIds.has(fid)) errors.push(`issue_groups[${i}]: references unknown finding id "${fid}"`)
+        covered.set(fid, (covered.get(fid) || 0) + 1)
       }
+    }
+    for (const id of findingIds) {
+      const count = covered.get(id) || 0
+      if (count === 0) errors.push(`issue_groups: finding "${id}" is not covered by any group`)
+      else if (count > 1) errors.push(`issue_groups: finding "${id}" appears in more than one group`)
     }
   } else {
     errors.push('issue_groups: expected an array')

@@ -155,6 +155,12 @@
   .cover-card h3{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
     color:var(--text-muted);font-family:'IBM Plex Sans',sans-serif;margin-bottom:8px;}
   .cover-card p{margin:0;color:var(--text);font-size:14px;}
+  .stack-card{grid-column:1/-1;}
+  .stack-table{display:flex;flex-direction:column;gap:0;}
+  .stack-row{display:grid;grid-template-columns:150px 1fr;gap:14px;padding:7px 0;border-top:1px solid var(--border);}
+  .stack-row:first-child{border-top:none;padding-top:0;}
+  .stack-layer{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;}
+  .stack-detail{font-size:13.5px;color:var(--text);}
 
   /* ---------- executive summary ---------- */
   .exec-grid{display:grid;grid-template-columns:1fr 1.3fr;gap:32px;align-items:start;}
@@ -180,6 +186,25 @@
   .category-legend{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;font-size:12.5px;}
   .category-legend div{display:flex;justify-content:space-between;gap:8px;color:var(--text-muted);}
   .category-legend b{color:var(--text);font-weight:500;font-family:'IBM Plex Mono',monospace;margin-right:6px;}
+
+  /* ---------- category coverage ---------- */
+  .cov-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .cov-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:14px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:8px;
+  }
+  .cov-card.is-na{background:var(--surface-alt);box-shadow:none;opacity:.72;}
+  .cov-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .cov-name{font-size:13.5px;font-weight:600;}
+  .cov-id{font-family:'IBM Plex Mono',monospace;color:var(--text-muted);margin-right:6px;font-weight:500;}
+  .cov-maturity{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;flex:none;
+    padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent-strong);
+  }
+  .cov-card.is-na .cov-maturity{background:var(--border);color:var(--text-muted);}
+  .cov-body{font-size:12.5px;color:var(--text-muted);}
+  .cov-body.cov-na-reason{font-style:italic;}
+  .cov-body b{color:var(--text);font-weight:600;font-family:'IBM Plex Mono',monospace;}
 
   /* ---------- strengths / weaknesses ---------- */
   .sw-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
@@ -260,6 +285,7 @@
     .app{display:block;}
     .report-root{max-width:none;padding:0;margin:0;}
     .issue-block pre{max-height:none;overflow:visible;}
+    .table-wrap{overflow:visible;}
     .report-page{border-bottom:none;break-after:page;padding:12px 0;}
     .report-page:last-child{break-after:auto;}
     .report-page::after{
@@ -581,20 +607,57 @@
   }
 
   function buildCover(doc) {
+    const stack = Array.isArray(doc.stack) ? doc.stack : [];
+    const cards = [
+      el('div', { class: 'cover-card' }, [
+        el('h3', { text: 'Âmbito' }),
+        el('p', { text: doc.scope || '—' }),
+      ]),
+      el('div', { class: 'cover-card' }, [
+        el('h3', { text: 'Metodologia' }),
+        el('p', { text: doc.methodology_note || '—' }),
+      ]),
+    ];
+    if (stack.length > 0) {
+      cards.push(el('div', { class: 'cover-card stack-card' }, [
+        el('h3', { text: 'Stack' }),
+        el('div', { class: 'stack-table' }, stack.map(s => el('div', { class: 'stack-row' }, [
+          el('div', { class: 'stack-layer', text: s.layer }),
+          el('div', { class: 'stack-detail', text: s.detail }),
+        ]))),
+      ]));
+    }
     return el('section', { class: 'report-page cover', 'data-project': doc.project }, [
       el('div', { class: 'cover-kicker', text: 'Relatório de Auditoria de Segurança & RGPD' }),
       el('h1', { class: 'cover-title', text: doc.project }),
       el('div', { class: 'cover-date', text: `Data da auditoria: ${doc.audit_date}` }),
-      el('div', { class: 'cover-grid' }, [
-        el('div', { class: 'cover-card' }, [
-          el('h3', { text: 'Âmbito' }),
-          el('p', { text: doc.scope || '—' }),
+      el('div', { class: 'cover-grid' }, cards),
+    ]);
+  }
+
+  function buildCategoryCoverage(doc) {
+    const categories = Array.isArray(doc.categories) ? doc.categories.slice().sort((a, b) => a.id - b.id) : [];
+    const countsByCategory = {};
+    for (const f of doc.findings) countsByCategory[f.category] = (countsByCategory[f.category] || 0) + 1;
+
+    const cards = categories.map(cat => {
+      const isNa = cat.applicable === false;
+      const body = isNa
+        ? el('div', { class: 'cov-body cov-na-reason', text: cat.na_reason || '—' })
+        : el('div', { class: 'cov-body' }, [el('b', { text: String(countsByCategory[cat.id] || 0) }), ' achado(s) nesta categoria']);
+      return el('div', { class: `cov-card${isNa ? ' is-na' : ''}` }, [
+        el('div', { class: 'cov-head' }, [
+          el('div', { class: 'cov-name' }, [el('span', { class: 'cov-id', text: String(cat.id) }), cat.name]),
+          el('span', { class: 'cov-maturity', title: 'Maturidade', text: isNa ? 'N/A' : `${cat.maturity}%` }),
         ]),
-        el('div', { class: 'cover-card' }, [
-          el('h3', { text: 'Metodologia' }),
-          el('p', { text: doc.methodology_note || '—' }),
-        ]),
-      ]),
+        body,
+      ]);
+    });
+
+    return el('section', { class: 'report-page', 'data-project': doc.project }, [
+      el('div', { class: 'section-eyebrow', text: 'Cobertura' }),
+      el('h2', { class: 'section-title', text: 'Cobertura por categoria' }),
+      el('div', { class: 'cov-grid' }, cards),
     ]);
   }
 
@@ -718,11 +781,11 @@
   }
 
   function buildFindingsTable(doc) {
-    const sevSelect = el('select', { id: 'filter-severity', onchange: applyFindingsFilter }, [
+    const sevSelect = el('select', { id: 'filter-severity', 'aria-label': 'Filtrar por severidade', onchange: applyFindingsFilter }, [
       el('option', { value: '', text: 'Todas as severidades' }),
       ...SEVERITY_ORDER.map(s => el('option', { value: s, text: SEVERITY_LABELS[s] })),
     ]);
-    const catSelect = el('select', { id: 'filter-category', onchange: applyFindingsFilter }, [
+    const catSelect = el('select', { id: 'filter-category', 'aria-label': 'Filtrar por categoria', onchange: applyFindingsFilter }, [
       el('option', { value: '', text: 'Todas as categorias' }),
       ...Object.keys(CATEGORY_NAMES).map(Number).map(id =>
         el('option', { value: String(id), text: `${id}. ${CATEGORY_NAMES[id]}` })),
@@ -853,6 +916,7 @@
     root.innerHTML = '';
     root.appendChild(buildCover(doc));
     root.appendChild(buildExecSummary(doc));
+    root.appendChild(buildCategoryCoverage(doc));
     root.appendChild(buildStrengthsWeaknesses(doc));
     root.appendChild(buildFindingsTable(doc));
     const rgpd = buildRgpdPanel(doc);
@@ -893,7 +957,7 @@
       return;
     }
     try {
-      state.slugs = await loadProjectSlugs();
+      state.slugs = (await loadProjectSlugs()).slice().sort((a, b) => a.localeCompare(b));
     } catch (err) {
       showDbUnavailable('Não foi possível carregar os projetos auditados. Tente recarregar a página.');
       return;

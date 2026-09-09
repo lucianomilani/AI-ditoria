@@ -70,3 +70,92 @@ test('rejects a categories list missing one of the 12 fixed ids', () => {
   assert.equal(valid, false)
   assert.ok(errors.some(e => e.includes('missing entry for id 12')))
 })
+
+test('rejects a finding missing from all issue_groups', () => {
+  const doc = buildValidDoc()
+  doc.findings.push({
+    id: 'F2', category: 1, severity: 'baixa', file: 'src/c.ts', line: 5,
+    cwe: 'CWE-1', owasp: 'A01:2021', desc: 'd', code: 'c', why: 'w',
+    impact: 'i', fix: 'f', acceptance: ['ok'], rgpd_article: null,
+    exploitability_notes: null,
+  })
+  // issue_groups still only covers F1, not F2
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('finding "F2" is not covered by any group')))
+})
+
+test('rejects a finding appearing in two issue_groups', () => {
+  const doc = buildValidDoc()
+  doc.issue_groups = [['F1'], ['F1']]
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('finding "F1" appears in more than one group')))
+})
+
+test('accepts full issue_groups coverage with one finding per group', () => {
+  const doc = buildValidDoc()
+  // buildValidDoc already gives exactly one finding (F1) covered by exactly one group
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, true)
+  assert.deepEqual(errors, [])
+})
+
+test('rejects a scans[] item that is an empty object', () => {
+  const doc = buildValidDoc()
+  doc.scans = [{}]
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('scans[0]: expected a non-empty object')))
+})
+
+test('rejects a sbom[] item that is not an object', () => {
+  const doc = buildValidDoc()
+  doc.sbom = ['react']
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('sbom[0]: expected a non-empty object')))
+})
+
+test('accepts scans[]/sbom[] items in either the canonical or the historical (Notely) shape', () => {
+  const doc = buildValidDoc()
+  doc.scans = [{ tool: 'npm audit', command: 'npm audit --json', result: '0 vulns' }]
+  doc.sbom = [{ name: 'react', version: '19.2.1', type: 'production' }]
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, true)
+  assert.deepEqual(errors, [])
+})
+
+test('rejects an empty audit_date', () => {
+  const doc = buildValidDoc()
+  doc.audit_date = ''
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('audit_date')))
+})
+
+test('rejects a null audit_date', () => {
+  const doc = buildValidDoc()
+  doc.audit_date = null
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('audit_date')))
+})
+
+test('rejects an empty-string na_reason on a non-applicable category', () => {
+  const doc = buildValidDoc()
+  const cat1 = doc.categories.find(c => c.id === 1)
+  cat1.applicable = false
+  cat1.na_reason = '   '
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('na_reason required (non-empty string)')))
+})
+
+test('rejects a category whose name does not match the fixed CATEGORY_NAMES entry', () => {
+  const doc = buildValidDoc()
+  doc.categories.find(c => c.id === 2).name = 'Wrong Name'
+  const { valid, errors } = validateFindings(doc)
+  assert.equal(valid, false)
+  assert.ok(errors.some(e => e.includes('categories[2]: name must be')))
+})
