@@ -1,4 +1,7 @@
-<title>Painel de Auditoria</title>
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-ditoria</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
@@ -76,10 +79,10 @@
   }
   .brand{display:flex;align-items:center;gap:10px;}
   .brand-mark{
-    width:34px;height:34px;border-radius:8px;
+    min-width:34px;height:34px;padding:0 6px;border-radius:8px;
     background:var(--accent);color:#fff;
     display:flex;align-items:center;justify-content:center;
-    font-family:'Fraunces',serif;font-weight:700;font-size:19px;flex:none;
+    font-family:'Fraunces',serif;font-weight:700;font-size:16px;letter-spacing:-.02em;flex:none;
   }
   .brand-title{font-family:'Fraunces',serif;font-weight:600;font-size:16px;line-height:1.2;}
   .brand-sub{font-size:12.5px;color:var(--text-muted);}
@@ -100,10 +103,12 @@
   .project-btn[data-open="true"] .caret{transform:rotate(90deg);}
   .project-btn span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .project-delete-btn{
-    flex:none;background:none;border:none;color:var(--text-muted);cursor:pointer;
-    padding:6px 8px;border-radius:6px;font-size:13px;line-height:1;
+    flex:none;display:flex;align-items:center;justify-content:center;
+    background:none;border:none;color:var(--text-muted);cursor:pointer;
+    padding:6px;border-radius:6px;opacity:.5;transition:opacity .15s,color .15s,background .15s;
   }
-  .project-delete-btn:hover{background:var(--surface-alt);color:#B91C1C;}
+  .project-delete-btn:hover,.project-delete-btn:focus-visible{opacity:1;background:var(--surface-alt);color:#B91C1C;}
+  .project-delete-btn svg{display:block;}
   .run-list{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px 26px;border-left:1px solid var(--border);}
   .run-btn{
     display:flex;flex-direction:column;align-items:flex-start;gap:1px;
@@ -124,7 +129,7 @@
     padding:14px 32px;background:var(--bg);border-bottom:1px solid var(--border);
     backdrop-filter:blur(6px);
   }
-  .toolbar-info{font-size:14px;color:var(--text-muted);}
+  .toolbar-info{font-size:14px;color:var(--text-muted);min-width:0;overflow-wrap:anywhere;}
   .toolbar-info strong{color:var(--text);font-weight:600;}
   .btn{
     font:inherit;font-weight:600;font-size:14px;border-radius:7px;padding:8px 14px;
@@ -135,7 +140,8 @@
   .btn-accent:hover{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff;}
   .btn-copy{font-size:13px;padding:5px 10px;}
 
-  .report-root{padding:0 32px 64px;max-width:1200px;margin:0 auto;}
+  .report-root{padding:0 32px 64px;max-width:1200px;margin:0 auto;overflow-wrap:anywhere;}
+  .cover-grid>*,.cov-grid>*,.sw-grid>*,.exec-grid>*,.stack-row>*{min-width:0;}
   .empty-state{padding:80px 20px;text-align:center;color:var(--text-muted);}
   .empty-state h2{font-size:21px;margin-bottom:8px;color:var(--text);}
 
@@ -227,7 +233,7 @@
   .weak-list li::before{content:"\2013";position:absolute;left:0;color:var(--text-muted);}
 
   /* ---------- filters / table ---------- */
-  .filters{display:flex;gap:10px;margin-bottom:14px;}
+  .filters{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
   select{
     font:inherit;font-size:14px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);
     background:var(--surface);color:var(--text);
@@ -285,8 +291,9 @@
   }
 
   /* ---------- lista de validação (checklist) ---------- */
-  .checklist-section-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
-  .checklist-table{table-layout:fixed;}
+  .checklist-section-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .checklist-section-header>div{min-width:0;}
+  .checklist-table{table-layout:fixed;overflow-wrap:normal;word-break:normal;}
   .checklist-table th{text-transform:none;letter-spacing:normal;font-size:13px;}
   .checklist-table th:nth-child(1),.checklist-table td:nth-child(1){width:40px;text-align:center;}
   .checklist-table th:nth-child(2),.checklist-table td:nth-child(2){width:100px;}
@@ -294,7 +301,8 @@
   .checklist-table th:nth-child(4),.checklist-table td:nth-child(4){width:31%;}
   .checklist-table th:nth-child(5),.checklist-table td:nth-child(5){width:10%;}
   .checklist-table th:nth-child(6),.checklist-table td:nth-child(6){width:17%;}
-  .checklist-check-header span{color:var(--accent);font-weight:700;}
+  .checklist-check-header{color:var(--accent);}
+  .checklist-check-header svg{display:inline-block;vertical-align:middle;}
   .checklist-table td.fileref{white-space:normal;word-break:break-word;}
   .checklist-table td.checklist-notes{padding:16px 10px;}
   .checklist-check input[type="checkbox"]{width:16px;height:16px;margin:0;}
@@ -329,15 +337,22 @@
     .sidebar{position:static;height:auto;}
     .exec-grid,.sw-grid,.cover-grid{grid-template-columns:1fr;}
     .rec-list li{grid-template-columns:1fr;}
+    .toolbar{flex-wrap:wrap;row-gap:8px;padding:14px 16px;}
+    .report-root{padding:0 16px 48px;}
+    .checklist-table{table-layout:auto;}
+    .checklist-table th:nth-child(3),.checklist-table td:nth-child(3),
+    .checklist-table th:nth-child(4),.checklist-table td:nth-child(4),
+    .checklist-table th:nth-child(5),.checklist-table td:nth-child(5),
+    .checklist-table th:nth-child(6),.checklist-table td:nth-child(6){width:auto;min-width:180px;}
   }
 </style>
 
 <div class="app">
   <aside class="sidebar no-print">
     <div class="brand">
-      <div class="brand-mark">A</div>
+      <div class="brand-mark">AI</div>
       <div>
-        <div class="brand-title">Painel de Auditoria</div>
+        <div class="brand-title">AI-ditoria</div>
         <div class="brand-sub">Auditorias de seguran&ccedil;a &amp; RGPD</div>
       </div>
     </div>
@@ -585,7 +600,8 @@
         class: 'project-delete-btn', type: 'button',
         title: `Remover ${slug} do dashboard`, 'aria-label': `Remover ${slug} do dashboard`,
         onclick: (e) => { e.stopPropagation(); deleteProject(slug); },
-      }, ['✕']);
+      });
+      deleteBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
       const item = el('div', { class: 'project-item' }, [
         el('div', { class: 'project-row' }, [
           el('button', {
@@ -1018,7 +1034,11 @@
 
     const table = el('table', { class: 'checklist-table' }, [
       el('thead', {}, [el('tr', {}, [
-        el('th', { class: 'checklist-check-header' }, [el('span', { 'aria-label': 'Confirmado', title: 'Confirmado', text: '✓' })]),
+        (() => {
+          const th = el('th', { class: 'checklist-check-header', title: 'Confirmado', 'aria-label': 'Confirmado' });
+          th.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+          return th;
+        })(),
         el('th', { text: 'Severidade' }),
         el('th', { text: 'Achado' }),
         el('th', { text: 'Ação recomendada' }),
@@ -1112,6 +1132,6 @@
   // Safety net: any failure not already caught above (a bug, or a rejection from a path
   // we didn't anticipate) still lands on the degraded state instead of an unhandled
   // rejection that leaves the page stuck on its initial "A carregar…" placeholders.
-  main().catch(() => showDataUnavailable('Ocorreu um erro inesperado ao carregar o Painel de Auditoria.'));
+  main().catch(() => showDataUnavailable('Ocorreu um erro inesperado ao carregar o AI-ditoria.'));
 })();
 </script>
