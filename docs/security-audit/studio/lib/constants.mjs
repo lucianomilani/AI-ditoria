@@ -9,7 +9,7 @@ export const CATEGORY_NAMES = {
   8: 'Integridade de escrita (CSRF/path/upload)',
   9: 'Rate limiting e força bruta',
   10: 'Dependências e IaC',
-  11: 'Vazamento de informação',
+  11: 'Fuga de informação',
   12: 'Compliance RGPD',
 }
 
