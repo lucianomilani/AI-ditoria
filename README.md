@@ -32,6 +32,32 @@ Ou seja: cada auditoria feita em qualquer PC, para qualquer projeto,
 acaba num único sítio central — sem servidor, sem base de dados, só
 ficheiros estáticos e git.
 
+## O dashboard, em imagens
+
+Visão geral — sidebar com os projetos auditados, capa da auditoria:
+
+![Visão geral do AI-ditoria](screenshots/00-overview.png)
+
+Sumário executivo — achados por severidade e categoria:
+
+![Resumo executivo](screenshots/01-resumo-executivo.png)
+
+Cobertura por categoria — maturidade estimada em cada uma das 12 categorias:
+
+![Cobertura por categoria](screenshots/02-cobertura.png)
+
+Detalhe dos achados, filtrável por severidade e categoria:
+
+![Achados](screenshots/03-achados.png)
+
+Issues geradas prontas a colar no GitHub:
+
+![Issues para o GitHub](screenshots/04-issues-github.png)
+
+Lista de Validação imprimível, para a reunião com o cliente:
+
+![Lista de Validação](screenshots/05-checklist.png)
+
 ## Onde está cada coisa
 
 ```
