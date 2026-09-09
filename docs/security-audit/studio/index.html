@@ -1,4 +1,4 @@
-<title>Audit Report Studio</title>
+<title>Painel de Auditoria</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
@@ -277,6 +277,14 @@
     max-height:340px;overflow-y:auto;color:var(--text);
   }
 
+  /* ---------- lista de validação (checklist) ---------- */
+  .checklist-section-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
+  .checklist-table{table-layout:fixed;}
+  .checklist-table th:nth-child(1),.checklist-table td:nth-child(1){width:34px;text-align:center;}
+  .checklist-table th:nth-child(2),.checklist-table td:nth-child(2){width:88px;}
+  .checklist-table td.checklist-notes{padding:16px 10px;}
+  .checklist-check input[type="checkbox"]{width:16px;height:16px;margin:0;}
+
   .no-print{}
   @media print{
     @page{size:A4;margin:2cm;}
@@ -293,6 +301,11 @@
       counter-increment:page;
       display:block;margin-top:24px;font-size:10px;color:#666;
     }
+    /* When printing only the checklist (via the "Imprimir lista de validação"
+       button), body.printing-checklist-only is toggled just for the print job
+       so every other report-page is hidden and only #checklist-section prints. */
+    body.printing-checklist-only .report-page:not(#checklist-section){display:none;}
+    body.printing-checklist-only #checklist-section{break-after:auto;}
   }
 
   @media (max-width:820px){
@@ -308,7 +321,7 @@
     <div class="brand">
       <div class="brand-mark">A</div>
       <div>
-        <div class="brand-title">Audit Report Studio</div>
+        <div class="brand-title">Painel de Auditoria</div>
         <div class="brand-sub">Auditorias de seguran&ccedil;a &amp; RGPD</div>
       </div>
     </div>
@@ -489,24 +502,35 @@
   }
 
   /* =====================================================================
-   * STATE + DB LOADING
+   * STATE + STATIC DATA LOADING
+   *
+   * The dashboard's data now lives as plain JSON files under ./data/,
+   * fetched over relative paths — no Claude-specific runtime API of any
+   * kind. data/index.json is the manifest ({ projects: [{slug, runs[]}] });
+   * data/<slug>/<date>.json is one findings document.
    * ===================================================================== */
 
   const state = {
-    db: null, slugs: [], runsBySlug: {}, runErrors: {},
+    manifest: null, slugs: [], runsBySlug: {}, runErrors: {},
     openSlug: null, activeSlug: null, activeRunId: null,
   };
 
-  async function loadProjectSlugs() {
-    if (!state.db) return [];
-    const snap = await state.db.doc('meta/projects').get();
-    return snap.exists ? (snap.data().slugs || []) : [];
+  async function loadManifest() {
+    const res = await fetch('./data/index.json');
+    if (!res.ok) throw new Error(`manifest fetch failed: ${res.status}`);
+    return res.json();
   }
 
   async function loadRuns(slug) {
-    if (!state.db) return [];
-    const snap = await state.db.collection(`audits/${slug}/runs`).orderBy('audit_date', 'desc').get();
-    return snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    const entry = (state.manifest.projects || []).find(p => p.slug === slug);
+    const dates = entry ? (entry.runs || []).slice() : [];
+    const docs = await Promise.all(dates.map(async date => {
+      const res = await fetch(`./data/${slug}/${date}.json`);
+      if (!res.ok) throw new Error(`run fetch failed for ${slug}/${date}: ${res.status}`);
+      const data = await res.json();
+      return { _id: date, ...data };
+    }));
+    return docs.sort((a, b) => (b.audit_date || b._id).localeCompare(a.audit_date || a._id));
   }
 
   /* =====================================================================
@@ -890,7 +914,7 @@
   function buildIssues(doc) {
     const issues = buildAllIssues(doc.issue_groups, doc.findings);
     return el('section', { class: 'report-page', 'data-project': doc.project }, [
-      el('div', { class: 'section-eyebrow', text: 'Github' }),
+      el('div', { class: 'section-eyebrow', text: 'GitHub' }),
       el('h2', { class: 'section-title', text: `Issues para o GitHub (${issues.length})` }),
       ...issues.map((md, i) => {
         const pre = el('pre', { text: md });
@@ -904,6 +928,47 @@
           pre,
         ]);
       }),
+    ]);
+  }
+
+  function buildValidationChecklist(doc) {
+    const tbody = el('tbody', {}, doc.findings.map(f => el('tr', {}, [
+      el('td', { class: 'checklist-check' }, [el('input', { type: 'checkbox', 'aria-label': `Achado confirmado: ${f.id}` })]),
+      el('td', {}, [el('span', { class: 'chip', style: `background:${SEVERITY_COLORS[f.severity]}`, text: SEVERITY_LABELS[f.severity] })]),
+      el('td', { class: 'fileref' }, [el('span', { class: 'fid', text: f.id }), ' · ', `${f.file}:${f.line}`, ' — ', f.desc]),
+      el('td', { text: f.fix }),
+      el('td', { class: 'checklist-notes' }),
+      el('td', { class: 'checklist-notes' }),
+    ])));
+
+    const table = el('table', { class: 'checklist-table' }, [
+      el('thead', {}, [el('tr', {}, [
+        el('th', { text: '' }),
+        el('th', { text: 'Severidade' }),
+        el('th', { text: 'Achado' }),
+        el('th', { text: 'Ação recomendada' }),
+        el('th', { text: 'Notas' }),
+        el('th', { text: 'Responsável / Prazo' }),
+      ])]),
+      tbody,
+    ]);
+
+    const printChecklistBtn = el('button', { class: 'btn no-print', type: 'button' }, ['Imprimir lista de validação']);
+    printChecklistBtn.addEventListener('click', () => {
+      document.body.classList.add('printing-checklist-only');
+      window.print();
+    });
+
+    return el('section', { class: 'report-page checklist-section', id: 'checklist-section', 'data-project': doc.project }, [
+      el('div', { class: 'checklist-section-header' }, [
+        el('div', {}, [
+          el('div', { class: 'section-eyebrow', text: 'Reunião de validação' }),
+          el('h2', { class: 'section-title', text: `Lista de Validação (${doc.findings.length})`, style: 'margin-bottom:0' }),
+        ]),
+        printChecklistBtn,
+      ]),
+      el('p', { class: 'no-print', style: 'color:var(--text-muted);font-size:13px;margin:0 0 14px;', text: 'Para preencher à mão numa reunião de validação com o cliente: uma caixa por achado, para marcar como confirmado, e colunas em branco para notas e responsável/prazo.' }),
+      el('div', { class: 'table-wrap' }, [table]),
     ]);
   }
 
@@ -923,6 +988,7 @@
     if (rgpd) root.appendChild(rgpd);
     root.appendChild(buildRecommendations(doc));
     root.appendChild(buildIssues(doc));
+    root.appendChild(buildValidationChecklist(doc));
   }
 
   /* =====================================================================
@@ -931,37 +997,33 @@
 
   document.getElementById('print-btn').addEventListener('click', () => window.print());
 
-  /** Renders the "can't reach the database" degraded state in both the sidebar and the
-   * report area. Used whether `use('db')` resolves null (capability not granted at all)
-   * or a granted db's first call rejects (not_granted/revoked/resource_exhausted/
-   * quota_exceeded/unavailable — the DB contract is explicit that these arrive on the
-   * call, not on `use()`) — either way the viewer must see this, not a frozen
-   * "A carregar…" placeholder. */
-  function showDbUnavailable(message) {
+  // Removes the checklist-only print scoping once the print job (or print-preview
+  // dialog) is done, so the very next full-report print isn't accidentally scoped
+  // down too. Registered once, globally — the checklist's own print button only
+  // ever adds the class right before calling window.print().
+  window.addEventListener('afterprint', () => {
+    document.body.classList.remove('printing-checklist-only');
+  });
+
+  /** Renders the "can't reach the data files" degraded state in both the sidebar and the
+   * report area. Used whenever fetching data/index.json (or a specific run) fails —
+   * network error, missing file, invalid JSON — so the viewer sees an explicit message,
+   * not a frozen "A carregar…" placeholder. */
+  function showDataUnavailable(message) {
     const list = document.getElementById('project-list');
     list.innerHTML = '';
-    list.appendChild(el('div', { class: 'sidebar-empty', text: 'Base de dados indisponível nesta vista.' }));
+    list.appendChild(el('div', { class: 'sidebar-empty', text: 'Dados indisponíveis nesta vista.' }));
     renderEmptyReport(message);
   }
 
   async function main() {
-    let db = null;
     try {
-      db = await window.claude.use('db');
+      state.manifest = await loadManifest();
     } catch (err) {
-      db = null;
-    }
-    state.db = db;
-    if (!db) {
-      showDbUnavailable('Não foi possível ligar à base de dados do artefacto nesta vista.');
+      showDataUnavailable('Não foi possível carregar os projetos auditados. Tente recarregar a página.');
       return;
     }
-    try {
-      state.slugs = (await loadProjectSlugs()).slice().sort((a, b) => a.localeCompare(b));
-    } catch (err) {
-      showDbUnavailable('Não foi possível carregar os projetos auditados. Tente recarregar a página.');
-      return;
-    }
+    state.slugs = (state.manifest.projects || []).map(p => p.slug).slice().sort((a, b) => a.localeCompare(b));
     renderSidebar();
     if (state.slugs.length > 0) {
       await selectProjectDefault(state.slugs[0]);
@@ -973,6 +1035,6 @@
   // Safety net: any failure not already caught above (a bug, or a rejection from a path
   // we didn't anticipate) still lands on the degraded state instead of an unhandled
   // rejection that leaves the page stuck on its initial "A carregar…" placeholders.
-  main().catch(() => showDbUnavailable('Ocorreu um erro inesperado ao carregar o Audit Report Studio.'));
+  main().catch(() => showDataUnavailable('Ocorreu um erro inesperado ao carregar o Painel de Auditoria.'));
 })();
 </script>

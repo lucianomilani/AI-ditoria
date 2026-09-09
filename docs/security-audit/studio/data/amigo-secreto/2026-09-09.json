@@ -1,0 +1,292 @@
+{
+  "project": "amigo-secreto",
+  "audit_date": "2026-09-09",
+  "scope": "Full repository at /var/home/lmilani/Documentos/IDE/amigo-secreto: App.tsx, all components/*.tsx, services/participantService.ts, types.ts, index.tsx/index.html, vite.config.ts, package.json/package-lock.json, .env.local, .gitignore, README.md, metadata.json, and the committed dist/ build output. node_modules content was not read directly (npm audit metadata was used instead for dependency CVEs). The live deployed site (https://natal.capoeiracal.com, hardcoded in ParticipantList.tsx) was not accessed; this is a static source review only, no dynamic/pen-testing was performed.",
+  "stack": [
+    { "layer": "language", "detail": "TypeScript 5.8 + JSX/TSX, ES2022 target (tsconfig.json)" },
+    { "layer": "framework", "detail": "React 19.2, client-only SPA (index.tsx mounts <App/> into #root)" },
+    { "layer": "build tool", "detail": "Vite 6.2 (npm run dev / vite build to dist/)" },
+    { "layer": "routing", "detail": "None — no react-router. App.tsx toggles between the admin dashboard and the guest reveal view by reading window.location.search for a `secret` query param" },
+    { "layer": "backend", "detail": "None. No server, no API routes, no database. All state (participants, pairings) is persisted client-side to the browser's localStorage via services/participantService.ts" },
+    { "layer": "auth", "detail": "None anywhere in the codebase — no login, no session/cookie, no password, no token issuance beyond the ad-hoc base64 'secret' query param used for the guest reveal link" },
+    { "layer": "deploy", "detail": "Static hosting implied (dist/ is a plain static build). No Dockerfile, CI workflow, Terraform, or any other IaC/header-config file (_headers, vercel.json, netlify.toml) exists in the repo. Production domain https://natal.capoeiracal.com is hardcoded in components/ParticipantList.tsx" },
+    { "layer": "external services", "detail": "Tailwind Play CDN (cdn.tailwindcss.com), Google Fonts (fonts.googleapis.com), and an aistudiocdn.com import map for react/react-dom/lucide-react — present in BOTH the dev-time index.html and the committed dist/index.html (dist/index.html:18-27), not dev-only. In the production build the import map tag ships but is inert: the bundled entry script (dist/index.html:28) resolves react/react-dom internally rather than through it. A GEMINI_API_KEY env var is wired into vite.config.ts's `define` block but is not referenced by any current application code (services/, components/, App.tsx)." }
+  ],
+  "methodology_note": "Every source file in the repo was read in full (App.tsx, index.tsx, index.html + dist/index.html, all 7 files in components/ — including components/RevealModal.tsx, confirmed via grep to be unused/dead code, not imported anywhere — services/participantService.ts, types.ts, vite.config.ts, package.json, package-lock.json, .env.local, .gitignore, tsconfig.json, README.md, metadata.json, build.log). Ran `grep -rn` across all .ts/.tsx for dangerouslySetInnerHTML/innerHTML/eval(/javascript: (zero hits) and for API_KEY/GEMINI/process.env usage (only vite.config.ts references it). Ran `npm audit --json` for dependency CVE data. Confirmed no .git directory exists in the target (limits: cannot scan commit history for previously-leaked secrets). No live network requests were made to the production domain.",
+  "categories": [
+    { "id": 1, "name": "Banco sem tranca (isolamento)", "maturity": 100, "applicable": false, "na_reason": "There is no backend or database of any kind. All application state lives in the browser's own localStorage (services/participantService.ts), which the browser's same-origin policy already isolates per-browser/per-origin — there is no multi-tenant datastore that could leak one user's rows to another." },
+    { "id": 2, "name": "Permissão definida no navegador", "maturity": 30, "applicable": true, "na_reason": null },
+    { "id": 3, "name": "IDOR", "maturity": 100, "applicable": false, "na_reason": "There are no API routes/handlers of any kind — nothing fetches, mutates, or deletes a server-side object by ID, so there is no handler to check (or fail to check) object ownership against. (A related but distinct client-side issue — the guest reveal link having no integrity/signature check — is captured separately as finding F2 under category 5, since it is a input-trust problem, not a server-side ownership-check bypass.)" },
+    { "id": 4, "name": "Chaves expostas", "maturity": 70, "applicable": true, "na_reason": null },
+    { "id": 5, "name": "Inputs sem tratamento (XSS)", "maturity": 80, "applicable": true, "na_reason": null },
+    { "id": 6, "name": "Autenticação e sessões", "maturity": 55, "applicable": true, "na_reason": null },
+    { "id": 7, "name": "SSRF", "maturity": 100, "applicable": false, "na_reason": "There is no server making any outbound HTTP request on a user's behalf — the app is 100% client-rendered. The only outbound network calls are the browser's own requests to three hardcoded CDN origins (Tailwind, Google Fonts, aistudiocdn.com), none of which are constructed from user input." },
+    { "id": 8, "name": "Integridade de escrita (CSRF/path/upload)", "maturity": 100, "applicable": false, "na_reason": "There are no cookies, no server-side session, and no CORS-exposed write endpoint for CSRF to target. There is also no file-upload feature anywhere in the codebase (confirmed by grep across all components/services) for path-traversal/zip-slip to apply to. All writes are same-origin localStorage calls made directly by the page's own JS." },
+    { "id": 9, "name": "Rate limiting e força bruta", "maturity": 100, "applicable": false, "na_reason": "There is no login, password-reset, or any other server-side sensitive endpoint to brute-force — the app has no authentication layer at all (see finding F1, category 6) and no network endpoints of its own to rate-limit. Guessing/trying many `secret` query-param values happens entirely client-side with zero network calls, so there is no remote surface to instrument." },
+    { "id": 10, "name": "Dependências e IaC", "maturity": 55, "applicable": true, "na_reason": null },
+    { "id": 11, "name": "Vazamento de informação", "maturity": 55, "applicable": true, "na_reason": null },
+    { "id": 12, "name": "Compliance RGPD", "maturity": 45, "applicable": true, "na_reason": null }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "category": 6,
+      "severity": "baixa",
+      "file": "App.tsx",
+      "line": 20,
+      "cwe": "CWE-306",
+      "owasp": "A01:2021-Broken Access Control",
+      "desc": "The admin dashboard (add/remove participants, run the draw, reset the draw) has no authentication of any kind. The only thing separating the full-control admin view from the read-only guest reveal view is whether the URL happens to carry a `?secret=` query parameter — there is no password, no login, no session, no capability check anywhere in the codebase.",
+      "code": "  useEffect(() => {\n    // Check URL params on mount\n    const params = new URLSearchParams(window.location.search);\n    const secret = params.get('secret');\n    if (secret) {\n      setSecretParam(secret);\n    } else {\n      // Load admin data only if not in reveal mode\n      setParticipants(service.getParticipants());\n    }\n  }, []);\n\n  // If a secret parameter is present, show the Guest Reveal Screen entirely\n  if (secretParam) {\n    return <ExternalReveal secretData={secretParam} />;\n  }",
+      "why": "The 'else' branch — reached by simply visiting the bare production URL with no query string — renders the entire admin dashboard (ParticipantForm, ParticipantList with remove buttons, DrawControls with draw/reset) to anyone. Worse, every guest reveal link that the admin copies and sends (components/ParticipantList.tsx:36-37) is built as `https://natal.capoeiracal.com/?secret=<payload>` — so every single guest who receives a link trivially learns the exact base admin URL by just stripping the query string.",
+      "impact": "The only real persistence in this app is localStorage (services/participantService.ts:12,22), which the browser scopes per origin AND per browser profile — this is the same fact correctly stated in category 1's own na_reason. A guest who strips the query string and visits the bare URL from their own browser/device gets the admin UI backed by THEIR OWN empty localStorage, not the admin's data: they cannot see the admin's participant list, cannot alter or delete the admin's assignments, and cannot invalidate reveal links already issued. The genuine residual risk is narrower: there is no re-entry gate on the admin's OWN device/browser profile — if the organizer runs the draw on a shared, kiosk, or otherwise unattended/unlocked computer, anyone who later uses that same browser profile can reopen the bare URL and get full control over that one browser's draw state (add/remove participants, force a reshuffle, reset it) with no prompt standing in the way.",
+      "fix": "Add a minimum viable admin gate before rendering the dashboard branch — e.g. a shared passphrase prompt gating `setParticipants(service.getParticipants())`/the dashboard render, stored only in the admin's own session (sessionStorage, not localStorage) after entry. This doesn't need to be a full auth system given there's no backend, but *some* barrier beyond 'no query string present' is needed since the admin URL is passively disclosed to every guest.",
+      "acceptance": [
+        "Visiting the bare production URL without any prior gate no longer renders the add/remove/draw/reset dashboard",
+        "A documented (even lightweight) admin-entry step exists and is required before dashboard state loads",
+        "Reveal links continue to work for guests without requiring the new gate"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Requires access to the admin's OWN browser profile/device (e.g. a shared, kiosk, or unlocked/unattended computer the organizer already used to run the draw) — not merely knowing the base URL, which is passively disclosed to every guest via their own reveal link (ParticipantList.tsx:33-37) but grants a guest on a different browser/device only their own empty localStorage, not the admin's data."
+    },
+    {
+      "id": "F2",
+      "category": 5,
+      "severity": "media",
+      "file": "components/ExternalReveal.tsx",
+      "line": 16,
+      "cwe": "CWE-345",
+      "owasp": "A08:2021-Software and Data Integrity Failures",
+      "desc": "The guest reveal payload is only base64-encoded JSON (`btoa`/`atob`), not signed or encrypted. ExternalReveal only checks that `parsed.n` and `parsed.t` are truthy — it never verifies the payload actually originated from a real draw performed by the admin.",
+      "code": "    try {\n      const decodedString = decodeURIComponent(escape(atob(secretData)));\n      const parsed = JSON.parse(decodedString);\n\n      if (!parsed.n || !parsed.t) {\n        throw new Error(\"Dados inválidos\");\n      }\n\n      setData({ name: parsed.n, target: parsed.t });",
+      "why": "Because the encoding scheme is plain base64 of a `{n, t}` JSON object and the source is fully client-side (shipped in the public JS bundle, viewable via devtools), anyone can construct their own valid-looking `secret` value for arbitrary `n`/`t` name pairs — there is no server-side record to cross-check the payload against, and no signature/MAC to prove the pairing is authentic.",
+      "impact": "A participant (or anyone with basic devtools knowledge) can craft a reveal link claiming any name is paired with any other name and pass it off as legitimate, or decode a link not addressed to them to see someone else's real assignment. This undermines the trust/fairness the whole app exists to provide, though the blast radius is limited to a small friend group's gift-exchange result, not high-value data.",
+      "fix": "If a lightweight integrity guarantee is wanted without standing up a backend, HMAC-sign the payload with a secret embedded at build time (still client-side-only, but at least raises the bar above 'anyone who reads the source can forge one'), or accept this as a known, documented limitation of a no-backend design given the low stakes of a Secret Santa reveal.",
+      "acceptance": [
+        "Either a signature/HMAC check is added to ExternalReveal's decode path, or the limitation is explicitly documented in the README as an accepted trade-off of the no-backend design"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Requires viewing the public JS bundle (or this audit) to learn the encoding scheme, then constructing a base64 string by hand or with browser devtools — no authentication or network access needed."
+    },
+    {
+      "id": "F3",
+      "category": 4,
+      "severity": "baixa",
+      "file": "vite.config.ts",
+      "line": 13,
+      "cwe": "CWE-200",
+      "owasp": "A02:2021-Cryptographic Failures",
+      "desc": "vite.config.ts bakes `GEMINI_API_KEY` into two client-visible globals (`process.env.API_KEY`, `process.env.GEMINI_API_KEY`) via Vite's `define`, which inlines the value as a literal string into the public JS bundle at build time — anything assigned this way ships to every visitor's browser, unlike a real server-side secret.",
+      "code": "      define: {\n        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),\n        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)\n      },",
+      "why": "`.env.local` currently only holds the literal string `PLACEHOLDER_API_KEY` (confirmed by reading the file), and no file in App.tsx/components/services references `process.env.API_KEY` or `process.env.GEMINI_API_KEY` at all (confirmed by grep) — so today this define is dead code with a placeholder value, not an active leak. But the README explicitly instructs whoever runs this app to 'Set the GEMINI_API_KEY in .env.local to your Gemini API key', and the wiring to expose it client-side is already in place and ready to fire the moment any frontend code starts calling `process.env.API_KEY`.",
+      "impact": "If a real Gemini key is ever set and any frontend code reads `process.env.API_KEY`/`GEMINI_API_KEY` (as the vite define implies is intended), that key ships in the public dist/assets/*.js bundle for anyone to extract and use on the developer's own quota/billing.",
+      "fix": "If Gemini calls are ever added, proxy them through a small server-side function so the key never reaches the client bundle; if the app is meant to stay backend-free forever, remove the unused `define` entries and the GEMINI_API_KEY README instruction entirely to eliminate the landmine.",
+      "acceptance": [
+        "Either the client-exposing `define` entries are removed as dead code, or any future Gemini integration proxies the call server-side instead of reading the key in browser JS"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Not exploitable today: .env.local holds only a placeholder string and no current application code reads the resulting global. Becomes exploitable only if a real key is set AND frontend code is added that reads process.env.API_KEY/GEMINI_API_KEY directly, per the README's current instructions."
+    },
+    {
+      "id": "F4",
+      "category": 10,
+      "severity": "media",
+      "file": "index.html",
+      "line": 8,
+      "cwe": "CWE-829",
+      "owasp": "A08:2021-Software and Data Integrity Failures",
+      "desc": "Three third-party script/style origins are loaded with no Subresource Integrity (SRI) hash: the Tailwind Play CDN script, the Google Fonts stylesheet, and an import map pointing react/react-dom/lucide-react at aistudiocdn.com — present in BOTH index.html and the committed dist/index.html (dist/index.html:18-27), not dev-only. In the production build the import map tag ships but is inert, since the bundled entry script (dist/index.html:28) resolves react/react-dom internally rather than through it.",
+      "code": "  <script src=\"https://cdn.tailwindcss.com\"></script>\n  <link href=\"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap\"\n    rel=\"stylesheet\">\n  <style>\n    body {\n      font-family: 'Space Grotesk', sans-serif;\n    }\n  </style>\n  <script type=\"importmap\">\n{\n  \"imports\": {\n    \"lucide-react\": \"https://aistudiocdn.com/lucide-react@^0.556.0\",\n    \"react/\": \"https://aistudiocdn.com/react@^19.2.1/\",\n    \"react\": \"https://aistudiocdn.com/react@^19.2.1\",\n    \"react-dom/\": \"https://aistudiocdn.com/react-dom@^19.2.1/\"\n  }\n}\n</script>",
+      "why": "None of these tags carry an `integrity=\"sha384-...\"` attribute, so the browser will execute whatever the CDN happens to serve at request time with no cryptographic check that it's the expected file. The Tailwind Play CDN itself is explicitly documented upstream as unsuitable for production use.",
+      "impact": "If any of these three third-party origins were compromised, served a malicious response via a MITM on a non-HTTPS-enforced path, or changed unexpectedly, arbitrary JS/CSS would run in the app's origin with no browser-level integrity check to stop it.",
+      "fix": "Add `integrity`/`crossorigin` attributes where the CDN supports versioned, hashable assets, self-host the Tailwind build via the actual Tailwind CLI/PostCSS pipeline instead of the Play CDN (recommended for production regardless of security), and pin react/react-dom as the npm-installed build already does in dist/ rather than via an unpinned import map.",
+      "acceptance": [
+        "Tailwind is compiled via the standard CLI/PostCSS build rather than the Play CDN script for the production path",
+        "Any remaining external <script>/<link> tags carry SRI integrity hashes where the origin supports them"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Requires a compromise or malicious response from one of the three CDN origins (cdn.tailwindcss.com, fonts.googleapis.com, aistudiocdn.com) — not exploitable by an ordinary end user directly."
+    },
+    {
+      "id": "F5",
+      "category": 10,
+      "severity": "baixa",
+      "file": "package.json",
+      "line": 16,
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021-Vulnerable and Outdated Components",
+      "desc": "`npm audit --json` reports 8 known advisories against resolved dependency versions: 6 high (browserslist <=4.28.6, nanoid <=3.3.17, picomatch 4.0.0-4.0.3, postcss <=8.5.22, rollup 4.0.0-4.58.0, vite <=6.4.2), 1 moderate (baseline-browser-mapping), 1 low (@babel/core).",
+      "code": "  \"devDependencies\": {\n    \"@types/node\": \"^22.14.0\",\n    \"@vitejs/plugin-react\": \"^5.0.0\",\n    \"typescript\": \"~5.8.2\",\n    \"vite\": \"^6.2.0\"\n  }",
+      "why": "All 8 flagged packages resolve as transitive devDependencies of the Vite/PostCSS/Rollup build toolchain (package-lock.json lines ~1685-1703 show postcss ^8.5.3, rollup ^4.34.9, picomatch ^4.0.2 pulled in under vite's own dependency tree) — none of them are among the app's 3 actual production dependencies (react, react-dom, lucide-react), so none of these CVEs ship inside dist/assets/*.js to end users. They do affect the local dev server / build machine.",
+      "impact": "Locally, `npm run dev`/`vite build` runs code from these vulnerable packages; the specific advisories are mostly DoS/ReDoS/arbitrary-file-read issues that matter most if the dev server is ever exposed on an untrusted network (vite.config.ts:10 sets `host: '0.0.0.0'`, which does expose the dev server beyond localhost).",
+      "fix": "Run `npm audit fix` / bump vite to a patched 6.x release (or the current major) to pick up fixed rollup/postcss/picomatch/browserslist/nanoid versions; also consider reverting vite.config.ts's `host: '0.0.0.0'` to the default localhost-only binding unless LAN access to the dev server is actually needed.",
+      "acceptance": [
+        "`npm audit` reports 0 high/critical vulnerabilities after a dependency bump",
+        "vite.config.ts's `server.host` is scoped back to localhost unless LAN dev access is a deliberate, documented requirement"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Confined to the local dev/build environment (devDependencies only); combined with `host: '0.0.0.0'` (vite.config.ts:10) the dev server's WebSocket/file-read advisories become reachable from other machines on the same network while `npm run dev` is active."
+    },
+    {
+      "id": "F6",
+      "category": 11,
+      "severity": "media",
+      "file": "index.html",
+      "line": 4,
+      "cwe": "CWE-693",
+      "owasp": "A05:2021-Security Misconfiguration",
+      "desc": "No Content-Security-Policy (or any other security header — X-Frame-Options, Referrer-Policy, HSTS) is configured anywhere: not as a `<meta http-equiv>` tag in either index.html, and not via any header-config file (no _headers, vercel.json, netlify.toml, or server config exists anywhere in the repo).",
+      "code": "<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n  <title>Amigo Secreto - Capoeira CAL</title>",
+      "why": "The app already loads three third-party script/style origins (F4) with no allowlist restricting what else could execute; a CSP would meaningfully cap the blast radius of a future XSS or supply-chain compromise even though none was found in the current code (grep confirmed zero dangerouslySetInnerHTML/innerHTML/eval sinks).",
+      "impact": "Without a CSP, any future injection vector (or a compromise of one of the third-party CDNs from F4) has no defense-in-depth backstop; without X-Frame-Options/frame-ancestors, the admin dashboard (which has no auth per F1) could also be framed/clickjacked from another site.",
+      "fix": "Add a restrictive CSP (self + the specific CDN origins already in use) and X-Frame-Options/frame-ancestors via a hosting-level header config (e.g. a `_headers` file if deployed to Netlify/Cloudflare Pages, or the equivalent for whatever host serves natal.capoeiracal.com).",
+      "acceptance": [
+        "A CSP header (or meta tag, as a fallback) restricting script-src/style-src to self plus the specific CDN origins in use is present in the deployed site",
+        "X-Frame-Options or frame-ancestors is set to prevent the no-auth admin dashboard from being framed by another origin"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "No CSP-bypassable injection point was found in the current codebase (see F2/F5's strength note) — this finding is about missing defense-in-depth, not a currently-exploitable gap on its own."
+    },
+    {
+      "id": "R1",
+      "category": 12,
+      "severity": "media",
+      "file": "components/ParticipantForm.tsx",
+      "line": 29,
+      "cwe": "N/A (RGPD process/documentation gap, not a CWE-mapped technical weakness)",
+      "owasp": "N/A (RGPD/legal compliance, not an OWASP Top 10 technical category)",
+      "desc": "The participant-name collection form has no privacy notice, no statement of purpose ('this name is used to run and display the Secret Santa draw'), no mention of retention, and no identification of who the data controller is — checked across ParticipantForm.tsx, App.tsx, and README.md, none of which mention data protection at all.",
+      "code": "      <form onSubmit={handleSubmit} className=\"flex flex-col sm:flex-row gap-4 items-end\">\n        <div className=\"flex-1 w-full\">\n          <label htmlFor=\"name\" className=\"block text-sm font-black uppercase text-slate-900 mb-2\">\n            Nome do Participante\n          </label>\n          <input\n            type=\"text\"\n            id=\"name\"\n            value={name}\n            onChange={(e) => setName(e.target.value)}\n            disabled={disabled}\n            className=\"w-full px-4 py-3 bg-white text-slate-900 border-2 border-slate-900 focus:outline-none focus:bg-yellow-50 focus:shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] transition-all placeholder:text-slate-500 font-bold text-lg\"\n            placeholder=\"Ex: João Silva\"\n            required\n            autoFocus\n          />\n        </div>",
+      "why": "Art. 12-13 GDPR require the controller to provide certain information (identity, purpose, retention, rights) at the point personal data is collected, in a concise/transparent form — this form collects a name with zero such notice.",
+      "impact": "Participants have no way to know who is running the tool, how long their name is kept, or how to ask for it to be removed, purely from using the app — they'd have to ask the admin informally.",
+      "fix": "Add a short one-line notice near the form (e.g. 'O teu nome é guardado apenas no browser do organizador para gerir este sorteio e pode ser apagado a qualquer momento a pedido') identifying the purpose and how to request removal.",
+      "acceptance": [
+        "A brief, visible privacy/purpose notice is added near the participant-name form"
+      ],
+      "rgpd_article": "Art. 12-13",
+      "exploitability_notes": null
+    },
+    {
+      "id": "R2",
+      "category": 12,
+      "severity": "media",
+      "file": "components/ParticipantList.tsx",
+      "line": 24,
+      "cwe": "CWE-598",
+      "owasp": "A02:2021-Cryptographic Failures",
+      "desc": "Two participants' names (the giver and their assigned recipient) are packed into an unsigned, unencrypted base64 blob and embedded directly in a URL query string (`?secret=...`) that gets copied and sent outside the app (e.g. via chat).",
+      "code": "    // Create payload\n    const payload = JSON.stringify({\n      n: participant.name,\n      t: target.name\n    });\n    \n    // Codificação segura para URL\n    const encoded = btoa(unescape(encodeURIComponent(payload)));\n    \n    // DEFINIÇÃO DO DOMÍNIO FINAL:\n    // Garante que o link seja sempre o do domínio de produção,\n    // mesmo que estejas a gerir o sorteio a partir do teu PC local.\n    const productionDomain = 'https://natal.capoeiracal.com';\n    const url = `${productionDomain}/?secret=${encoded}`;",
+      "why": "URLs containing personal data commonly end up in browser history, get logged by any intermediary the link passes through (chat apps, proxies), or get accidentally shared via screenshot — and since the comment itself calls the encoding 'segura' (secure), it's worth flagging that base64 provides no confidentiality at all, only obfuscation, matching Art. 5(1)(f)/32's integrity-and-confidentiality expectations poorly for personal data placed in a URL.",
+      "impact": "Anyone who obtains a copied reveal-link URL (via shared device history, a forwarded screenshot, or a chat log) can trivially base64-decode it (or open the link) and learn which two people are paired, without needing any credential.",
+      "fix": "At minimum, correct the misleading 'segura' comment to reflect that this is obfuscation, not encryption/security; consider not embedding both names in the URL at all (e.g. only the recipient index/id, resolved against the admin's own local list, so a leaked link reveals less on its own).",
+      "acceptance": [
+        "The comment describing the encoding no longer claims it is 'secure'",
+        "The reveal link's information disclosure trade-off is a documented, deliberate decision rather than an implicit assumption"
+      ],
+      "rgpd_article": "Art. 5(1)(f), Art. 32",
+      "exploitability_notes": "Requires obtaining a copy of someone else's reveal-link URL (e.g. from shared browser history, a forwarded message, or a screenshot) — no direct network attack against the app itself."
+    },
+    {
+      "id": "R3",
+      "category": 12,
+      "severity": "media",
+      "file": "index.html",
+      "line": 9,
+      "cwe": "N/A (RGPD process/documentation gap, not a CWE-mapped technical weakness)",
+      "owasp": "N/A (RGPD/legal compliance, not an OWASP Top 10 technical category)",
+      "desc": "The Google Fonts stylesheet is fetched directly from fonts.googleapis.com on every page load (both the dev and the committed dist/index.html), and the Tailwind Play CDN script and aistudiocdn.com import map likewise cause the visitor's browser to contact third-party servers — with no consent banner, no mention of these third parties anywhere, and no data processing agreement referenced in the repo.",
+      "code": "  <link href=\"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap\"\n    rel=\"stylesheet\">",
+      "why": "Directly loading Google Fonts from Google's own servers sends the visitor's IP address to Google on every page view; this specific pattern is the well-known basis of the LG München I ruling (Jan 2022) finding unconsented Google Fonts loading to be a GDPR violation, since it is a transfer of personal data (IP address) to a third party (and potentially outside the EEA) without a documented legal basis or Art. 28 processor agreement.",
+      "impact": "Every visitor to the reveal page or admin dashboard has their IP address sent to Google (and to the Tailwind/aistudiocdn CDN operators) with no consent mechanism and no disclosure that this happens.",
+      "fix": "Self-host the Google Fonts file (download and serve from the same origin as the rest of the static build) to remove the third-party request entirely, or add a consent mechanism if it must stay external; likewise consider self-hosting/bundling Tailwind's compiled CSS instead of the Play CDN (also recommended for F4/production-readiness reasons).",
+      "acceptance": [
+        "Google Fonts (and ideally the Tailwind CDN script) are self-hosted from the same origin, removing the unconsented third-party request",
+        "If any third-party origin must remain, its data flow is documented and a consent/legal-basis story exists"
+      ],
+      "rgpd_article": "Art. 5-6, Art. 44",
+      "exploitability_notes": null
+    }
+  ],
+  "strengths": [
+    {
+      "evidence": "services/participantService.ts:10-18 (getParticipants), :20-26 (saveParticipants) - both wrapped in try/catch with only console.error logging on failure",
+      "note": "Corrupted or inaccessible localStorage fails closed (returns an empty list / silently no-ops) instead of crashing the app or surfacing raw error details to the user.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "grep -rn \"dangerouslySetInnerHTML|innerHTML|eval(|javascript:\" across all .ts/.tsx files returned zero matches",
+      "note": "Every piece of user-supplied or decoded text (participant names in ParticipantList.tsx:77, the decoded name/target in ExternalReveal.tsx:64,73) is rendered exclusively through JSX text interpolation, which React auto-escapes — there is no HTML injection sink anywhere in the app.",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": ".gitignore:13 (`*.local` glob)",
+      "note": ".env.local (holding the GEMINI_API_KEY placeholder, see F3) is covered by the *.local ignore pattern, reducing the risk of a real key being committed if this directory is ever put under git (it currently has no .git directory).",
+      "applies_to": ["security"]
+    },
+    {
+      "evidence": "services/participantService.ts:47-51 (removeParticipant), :54-59 (resetDraw)",
+      "note": "All personal data lives solely in the data controller's (admin's) own browser localStorage — there is no other system, backend, or third-party processor to propagate a deletion to, so removing a participant or resetting the draw is immediate and complete. This makes the Art. 17 right to erasure trivially satisfiable in practice.",
+      "applies_to": ["rgpd"]
+    },
+    {
+      "evidence": "types.ts:1-5 (Participant interface has only id/name/secretSantaId), ParticipantForm.tsx:34-44 (single free-text name input)",
+      "note": "Only a display name is collected — no email, phone, address, or any special-category (Art. 9) data field exists anywhere in the data model, satisfying data minimization (Art. 5(1)(c)).",
+      "applies_to": ["rgpd"]
+    }
+  ],
+  "weaknesses": {
+    "security": [
+      "F1: no re-entry gate on the admin's own browser profile — the admin dashboard renders with no authentication check if the bare URL is opened on the same device/profile the organizer used to run the draw (a guest on a different browser/device gets only their own empty localStorage, not the admin's data)",
+      "F2: guest reveal payload is unsigned base64, forgeable by anyone who reads the public JS source",
+      "F3: a client-exposing env-var define for GEMINI_API_KEY is wired up and unused, ready to leak a real key the moment it's read by future frontend code",
+      "F4: three third-party CDN script/style origins are loaded with no Subresource Integrity",
+      "F5: 8 known CVEs (6 high) in the Vite/Rollup/PostCSS devDependency chain, exposed further by the dev server binding to 0.0.0.0",
+      "F6: no CSP or other security headers configured anywhere in the repo or its build output"
+    ],
+    "rgpd": [
+      "R1: no privacy notice/purpose statement shown when collecting a participant's name",
+      "R2: two participants' names are embedded in an unsigned, merely-obfuscated URL parameter described (incorrectly) in a comment as 'secure'",
+      "R3: Google Fonts (and other CDN assets) are loaded directly from third-party servers with no consent mechanism, sending visitor IPs to Google on every page view"
+    ]
+  },
+  "rgpd_panel": [
+    { "id": "consentimento", "topic": "Consentimento (Art. 6-7)", "status": "nao_conforme", "evidence": "ParticipantForm.tsx has no consent capture before collecting a name (R1); index.html:9 loads Google Fonts directly with no consent gate (R3)." },
+    { "id": "direitos_titulares", "topic": "Direitos dos titulares / apagamento (Art. 15-22, esp. 17)", "status": "conforme", "evidence": "participantService.ts:47-51 (removeParticipant) and :54-59 (resetDraw) give immediate, complete deletion since all data is local to the admin's own browser with no other system to propagate the deletion to." },
+    { "id": "minimizacao_retencao", "topic": "Minimização e retenção (Art. 5)", "status": "nao_verificada", "evidence": "types.ts:1-5 shows only a name field is collected (minimization is met), but no explicit retention period/expiry is documented anywhere for how long an admin is expected to keep past years' participant lists in localStorage." },
+    { "id": "dados_sensiveis", "topic": "Dados sensíveis (Art. 9)", "status": "nao_aplicavel", "evidence": "types.ts:1-5 - only a free-text 'name' field exists in the Participant model; no health, biometric, religious, or other special-category data field exists anywhere." },
+    { "id": "decisao_automatizada", "topic": "Decisão automatizada (Art. 22)", "status": "nao_aplicavel", "evidence": "services/participantService.ts:69-97 (performDraw) is a Fisher-Yates shuffle/single-cycle assignment algorithm — a game mechanic with no profiling and no legal/similarly significant effect on the participant, so Art. 22 does not apply." },
+    { "id": "transparencia", "topic": "Transparência (Art. 12-13)", "status": "nao_conforme", "evidence": "No file in the repo (ParticipantForm.tsx, App.tsx, README.md, ExternalReveal.tsx) discloses the data controller's identity, purpose, or retention to participants (R1)." },
+    { "id": "notificacao_violacao", "topic": "Notificação de violação (Art. 33-34)", "status": "nao_verificada", "evidence": "No incident-response or breach-notification process is documented anywhere in the repo; while there is no central backend to breach, the admin's own local data store (and the no-auth admin dashboard, F1) is still a plausible breach surface with no defined controller process for it." },
+    { "id": "processadores_terceiros", "topic": "Processadores / terceiros (Art. 28)", "status": "nao_conforme", "evidence": "index.html:8-24 and dist/index.html:8-27 show three third-party origins (cdn.tailwindcss.com, fonts.googleapis.com, aistudiocdn.com) receiving visitor requests on every page load, with no processor agreement or documented data-flow anywhere in the repo (R3)." }
+  ],
+  "scans": [
+    { "tool": "npm audit", "command": "npm audit --json", "result": "8 total vulnerabilities: 6 high (browserslist, nanoid, picomatch, postcss, rollup, vite), 1 moderate (baseline-browser-mapping), 1 low (@babel/core) — all in devDependencies, 0 in the 3 production dependencies (react, react-dom, lucide-react)." },
+    { "tool": "grep (dangerous sinks)", "command": "grep -rn \"dangerouslySetInnerHTML|innerHTML|eval(|javascript:\" --include=*.tsx --include=*.ts .", "result": "0 matches across the entire source tree." },
+    { "tool": "grep (secret usage)", "command": "grep -rn \"API_KEY|GEMINI|process.env\" --include=*.tsx --include=*.ts .", "result": "Only vite.config.ts:14-15 references GEMINI_API_KEY/API_KEY; no component or service reads it." }
+  ],
+  "sbom": [
+    { "name": "react", "version": "^19.2.1", "type": "production" },
+    { "name": "react-dom", "version": "^19.2.1", "type": "production" },
+    { "name": "lucide-react", "version": "^0.556.0", "type": "production" },
+    { "name": "vite", "version": "^6.2.0", "type": "development" },
+    { "name": "@vitejs/plugin-react", "version": "^5.0.0", "type": "development" },
+    { "name": "typescript", "version": "~5.8.2", "type": "development" },
+    { "name": "@types/node", "version": "^22.14.0", "type": "development" }
+  ],
+  "limits": [
+    "No .git directory exists in the target path — commit history could not be scanned for previously-committed secrets (relevant to category 4).",
+    "No live/deployed instance was tested — this is a static source-code review only; no dynamic testing (DAST), fuzzing, or manual penetration testing of the running app at https://natal.capoeiracal.com was performed.",
+    "The absence-of-security-headers finding (F6) is based on the absence of any header-setting file/config in this repo, not a live curl of the deployed site's actual response headers, since the deployed host/config is unknown from the repo alone.",
+    "Informativa: components/RevealModal.tsx exists in the source tree but is not imported/used anywhere (confirmed by grep for \"RevealModal\" across the repo) — an unused parallel reveal-modal component, superseded by components/ExternalReveal.tsx. Not a security finding on its own; noted here for completeness of the file inventory."
+  ],
+  "issue_groups": [
+    ["F1"],
+    ["F2"],
+    ["F3"],
+    ["F4", "F5"],
+    ["F6"],
+    ["R1"],
+    ["R2"],
+    ["R3"]
+  ]
+}
