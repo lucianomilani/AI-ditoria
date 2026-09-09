@@ -584,11 +584,30 @@
     return `${slug}/${auditDate}/${findingId}`;
   }
 
+  /* =====================================================================
+   * PORTED FUNCTION (verbatim from docs/security-audit/studio/lib/report-derive.mjs)
+   * ===================================================================== */
+  function findingKey(f) {
+    return `${f.file}:${f.line}:${f.id}`;
+  }
+  function diffFindings(runA, runB) {
+    const findingsA = runA.findings || [];
+    const findingsB = runB.findings || [];
+    const keysA = new Set(findingsA.map(findingKey));
+    const keysB = new Set(findingsB.map(findingKey));
+    return {
+      fixed: findingsA.filter(f => !keysB.has(findingKey(f))),
+      new: findingsB.filter(f => !keysA.has(findingKey(f))),
+      unchanged: findingsB.filter(f => keysA.has(findingKey(f))),
+    };
+  }
+
   const state = {
     manifest: null, slugs: [], runsBySlug: {}, runErrors: {},
     openSlug: null, activeSlug: null, activeRunId: null,
     hiddenSlugs: loadHiddenSlugs(),
     checklistState: loadChecklistState(),
+    compareSlug: null, compareDates: null,
   };
 
   async function loadManifest() {
@@ -656,6 +675,13 @@
             : [el('div', { class: 'sidebar-note', text: 'Sem auditorias.' })]);
         }
         item.appendChild(runList);
+        if (!state.runErrors[slug] && runs.length >= 2) {
+          const compareBtn = el('button', {
+            class: 'btn no-print', type: 'button', style: 'margin:6px 0 6px 26px;font-size:12px;padding:5px 10px;',
+            onclick: () => openCompare(slug),
+          }, ['Comparar auditorias']);
+          item.appendChild(compareBtn);
+        }
       }
       list.appendChild(item);
     }
@@ -717,6 +743,81 @@
     state.activeRunId = run._id;
     renderSidebar();
     renderReport(run);
+  }
+
+  /** Opens the compare-runs view for `slug`, defaulting to its two most
+   * recent runs (index 0 = newest, per loadRuns' descending sort). */
+  function openCompare(slug) {
+    const runs = state.runsBySlug[slug] || [];
+    if (runs.length < 2) return;
+    state.compareSlug = slug;
+    state.compareDates = { a: runs[1]._id, b: runs[0]._id };
+    state.activeSlug = null;
+    state.activeRunId = null;
+    renderSidebar();
+    renderCompare();
+  }
+
+  function renderCompareRowList(title, findings) {
+    if (findings.length === 0) {
+      return el('div', {}, [
+        el('h3', { style: 'font-size:14px;margin:16px 0 8px;', text: `${title} (0)` }),
+        el('p', { style: 'color:var(--text-muted);font-size:13px;', text: 'Nenhum.' }),
+      ]);
+    }
+    const tbody = el('tbody', {}, findings.map(f => el('tr', {}, [
+      el('td', {}, [el('span', { class: 'chip', style: `background:${SEVERITY_COLORS[f.severity]}`, text: SEVERITY_LABELS[f.severity] })]),
+      el('td', { class: 'fileref' }, [el('span', { class: 'fid', text: f.id }), ' · ', `${f.file}:${f.line}`]),
+      el('td', { text: f.desc }),
+    ])));
+    const table = el('table', {}, [
+      el('thead', {}, [el('tr', {}, [
+        el('th', { text: 'Severidade' }), el('th', { text: 'Ficheiro : linha' }), el('th', { text: 'Descrição' }),
+      ])]),
+      tbody,
+    ]);
+    return el('div', {}, [
+      el('h3', { style: 'font-size:14px;margin:16px 0 8px;', text: `${title} (${findings.length})` }),
+      el('div', { class: 'table-wrap' }, [table]),
+    ]);
+  }
+
+  function renderCompare() {
+    const slug = state.compareSlug;
+    const runs = state.runsBySlug[slug] || [];
+    document.getElementById('toolbar-info').innerHTML = '';
+    document.getElementById('toolbar-info').appendChild(
+      el('span', {}, [el('strong', { text: slug }), ` — comparar auditorias`])
+    );
+
+    const dateOptions = runs.map(r => el('option', { value: r._id, text: r.audit_date || r._id }));
+    const selectA = el('select', { 'aria-label': 'Auditoria A (mais antiga)' }, dateOptions.map(o => o.cloneNode(true)));
+    selectA.value = state.compareDates.a;
+    selectA.addEventListener('change', () => { state.compareDates.a = selectA.value; renderCompare(); });
+    const selectB = el('select', { 'aria-label': 'Auditoria B (mais recente)' }, dateOptions.map(o => o.cloneNode(true)));
+    selectB.value = state.compareDates.b;
+    selectB.addEventListener('change', () => { state.compareDates.b = selectB.value; renderCompare(); });
+
+    const runA = runs.find(r => r._id === state.compareDates.a);
+    const runB = runs.find(r => r._id === state.compareDates.b);
+    const root = document.getElementById('report-root');
+    root.innerHTML = '';
+    if (!runA || !runB) {
+      root.appendChild(el('p', { text: 'Escolhe duas auditorias para comparar.' }));
+      return;
+    }
+    const diff = diffFindings(runA, runB);
+    root.appendChild(el('section', { class: 'report-page' }, [
+      el('div', { class: 'section-eyebrow', text: 'Comparação' }),
+      el('h2', { class: 'section-title', text: `${slug}: comparar auditorias` }),
+      el('div', { class: 'no-print', style: 'display:flex;gap:16px;align-items:center;margin-bottom:18px;' }, [
+        el('label', {}, ['A (mais antiga): ', selectA]),
+        el('label', {}, ['B (mais recente): ', selectB]),
+      ]),
+      renderCompareRowList('Corrigidos', diff.fixed),
+      renderCompareRowList('Novos', diff.new),
+      renderCompareRowList('Ainda presentes', diff.unchanged),
+    ]));
   }
 
   async function selectProjectDefault(slug) {
