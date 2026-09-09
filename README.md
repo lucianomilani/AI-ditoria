@@ -13,9 +13,11 @@ pelo GitHub Pages. Simples de propósito.
 1. Corres `/security-audit` (ou `/security-audit <caminho>`) num
    projeto qualquer — pode ser React, PHP, o que for.
 2. O skill detecta a stack desse projeto, audita-o linha a linha contra
-   **12 categorias fixas** (isolamento multi-tenant, permissões só no frontend, IDOR, chaves expostas, XSS, auth/sessões, SSRF,
-   CSRF/path/upload, rate limiting, dependências/IaC, fuga de
-   informação, e compliance RGPD).
+   **12 categorias fixas**: isolamento multi-tenant e SQL/NoSQL injection,
+   permissões só no frontend, IDOR, chaves expostas, XSS, auth/sessões e
+   uso indevido de criptografia, SSRF, CSRF/path/upload e race
+   conditions/lógica de negócio, rate limiting e exhaustion de recursos,
+   dependências/IaC e supply-chain, fuga de informação, e compliance RGPD.
 3. Gera um `findings.json` com tudo o que encontrou — achados, pontos fortes, painel RGPD, cobertura por categoria — e valida esse ficheiro com um script (`validate-findings.mjs`) antes de aceitar nada.
 4. Escreve esse JSON aqui, dentro de
    `docs/security-audit/studio/data/<projeto>/<data>.json`, atualiza o índice (`data/index.json`) e faz commit + push.
@@ -51,6 +53,10 @@ Lista de Validação imprimível, para a reunião com o cliente:
 
 ![Lista de Validação](screenshots/05-checklist.png)
 
+Comparar duas auditorias do mesmo projeto — corrigidos, novos, ainda presentes:
+
+![Comparar auditorias](screenshots/06-comparar-auditorias.png)
+
 ## Onde está cada coisa
 
 ```
@@ -84,7 +90,30 @@ publicado, não a ferramenta que o produz.
   recomendações, e um gerador de issues para colar direto no GitHub.
 - Uma **Lista de Validação** imprimível — uma tabela pensada para
   levares numa reunião com o cliente e ires marcando achado a achado à
-  mão.
+  mão. A caixa "confirmado" fica guardada no browser (localStorage) —
+  se reabrires o mesmo projeto/auditoria nesse browser, o que já
+  marcaste continua marcado. Notas e Responsável/Prazo continuam só
+  para imprimir e preencher à mão.
+- **Comparar auditorias**: quando um projeto tem 2+ auditorias
+  publicadas, aparece um botão na sidebar para escolheres duas datas e
+  ver corrigidos / novos / ainda presentes entre elas — útil para
+  confirmar que uma correção realmente aconteceu, ou apanhar
+  regressões.
+
+## Gate para CI
+
+O `validate-findings.mjs` do skill (o que corre no passo 6 do processo
+de auditoria) aceita um `--fail-on=<severidade>`:
+
+```bash
+node ~/.claude/skills/security-audit/scripts/validate-findings.mjs findings.json --fail-on=alta
+```
+
+Falha (exit 1) se existir algum achado nessa severidade ou acima
+(`critica`, `alta`, `media`, `baixa`, `informativa` — critica é a mais
+grave). Sem a flag, o comportamento é o mesmo de sempre: só valida a
+forma do JSON. Isto corre no CI do projeto *auditado*, não deste repo
+— o AI-ditoria em si não tem pipeline própria.
 
 ## Como correr os testes
 
