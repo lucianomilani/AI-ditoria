@@ -135,7 +135,7 @@
   .btn-accent:hover{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff;}
   .btn-copy{font-size:13px;padding:5px 10px;}
 
-  .report-root{padding:0 32px 64px;max-width:960px;margin:0 auto;}
+  .report-root{padding:0 32px 64px;max-width:1200px;margin:0 auto;}
   .empty-state{padding:80px 20px;text-align:center;color:var(--text-muted);}
   .empty-state h2{font-size:21px;margin-bottom:8px;color:var(--text);}
 
@@ -287,12 +287,14 @@
   /* ---------- lista de validação (checklist) ---------- */
   .checklist-section-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
   .checklist-table{table-layout:fixed;}
-  .checklist-table th:nth-child(1),.checklist-table td:nth-child(1){width:34px;text-align:center;}
-  .checklist-table th:nth-child(2),.checklist-table td:nth-child(2){width:88px;}
-  .checklist-table th:nth-child(3),.checklist-table td:nth-child(3){width:32%;}
-  .checklist-table th:nth-child(4),.checklist-table td:nth-child(4){width:34%;}
-  .checklist-table th:nth-child(5),.checklist-table td:nth-child(5){width:11%;}
-  .checklist-table th:nth-child(6),.checklist-table td:nth-child(6){width:11%;}
+  .checklist-table th{text-transform:none;letter-spacing:normal;font-size:13px;}
+  .checklist-table th:nth-child(1),.checklist-table td:nth-child(1){width:40px;text-align:center;}
+  .checklist-table th:nth-child(2),.checklist-table td:nth-child(2){width:100px;}
+  .checklist-table th:nth-child(3),.checklist-table td:nth-child(3){width:29%;}
+  .checklist-table th:nth-child(4),.checklist-table td:nth-child(4){width:31%;}
+  .checklist-table th:nth-child(5),.checklist-table td:nth-child(5){width:10%;}
+  .checklist-table th:nth-child(6),.checklist-table td:nth-child(6){width:17%;}
+  .checklist-check-header span{color:var(--accent);font-weight:700;}
   .checklist-table td.fileref{white-space:normal;word-break:break-word;}
   .checklist-table td.checklist-notes{padding:16px 10px;}
   .checklist-check input[type="checkbox"]{width:16px;height:16px;margin:0;}
@@ -301,7 +303,7 @@
 
   .no-print{}
   @media print{
-    @page{size:A4;margin:2cm;}
+    @page{size:A4;margin:1.2cm;}
     .no-print{display:none;}
     body{counter-reset:page;background:#fff;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .app{display:block;}
@@ -1016,7 +1018,7 @@
 
     const table = el('table', { class: 'checklist-table' }, [
       el('thead', {}, [el('tr', {}, [
-        el('th', { text: '' }),
+        el('th', { class: 'checklist-check-header' }, [el('span', { 'aria-label': 'Confirmado', title: 'Confirmado', text: '✓' })]),
         el('th', { text: 'Severidade' }),
         el('th', { text: 'Achado' }),
         el('th', { text: 'Ação recomendada' }),
