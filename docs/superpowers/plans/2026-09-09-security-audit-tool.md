@@ -922,8 +922,10 @@ Artifact({ action: "write_db", url: "<the URL>", db_op: "set",
 ```
 Then `Artifact({ action: "read", url: "<the URL>" })` and visually confirm,
 section by section: sidebar shows "notely" with one run dated
-2026-09-01; donut chart shows 4 crítica / 8 alta / 10 média / 5 baixa
-(count directly from the fixture's severities); category bar chart shows
+2026-09-01; donut chart shows 4 crítica / 12 alta / 9 média / 2 baixa / 0
+informativa (count directly from the fixture's severities — verify
+against `docs/security-audit/studio/samples/notely.json` if in doubt,
+this is the authoritative count, not the number itself); category bar chart shows
 12 bars; strengths list has 6 items; findings table has 27 rows and the
 severity/category filters actually hide rows; RGPD panel shows 16 rows;
 recommendations show P1..P4 (crítica, alta, media, baixa all present in
