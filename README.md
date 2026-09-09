@@ -1,4 +1,4 @@
-# gestaudit
+# AI-ditoria - (gestaudit)
 
 Repositório do **Audit Report Studio** — a base onde ficam guardados e
 publicados os relatórios de auditoria de segurança + RGPD gerados pelo
@@ -8,29 +8,22 @@ Não é uma app com backend, não tem `npm install` gigante, não tem
 segredos escondidos. É JSON, HTML puro e um dashboard estático servido
 pelo GitHub Pages. Simples de propósito.
 
-## O fluxo, em português normal
+## O fluxo: analisar e gerar relatórios bem estruturados
 
 1. Corres `/security-audit` (ou `/security-audit <caminho>`) num
    projeto qualquer — pode ser React, PHP, o que for.
 2. O skill detecta a stack desse projeto, audita-o linha a linha contra
-   **12 categorias fixas** (isolamento multi-tenant, permissões só no
-   frontend, IDOR, chaves expostas, XSS, auth/sessões, SSRF,
+   **12 categorias fixas** (isolamento multi-tenant, permissões só no frontend, IDOR, chaves expostas, XSS, auth/sessões, SSRF,
    CSRF/path/upload, rate limiting, dependências/IaC, fuga de
    informação, e compliance RGPD).
-3. Gera um `findings.json` com tudo o que encontrou — achados, pontos
-   fortes, painel RGPD, cobertura por categoria — e valida esse ficheiro
-   com um script (`validate-findings.mjs`) antes de aceitar nada.
+3. Gera um `findings.json` com tudo o que encontrou — achados, pontos fortes, painel RGPD, cobertura por categoria — e valida esse ficheiro com um script (`validate-findings.mjs`) antes de aceitar nada.
 4. Escreve esse JSON aqui, dentro de
-   `docs/security-audit/studio/data/<projeto>/<data>.json`, atualiza o
-   índice (`data/index.json`) e faz commit + push.
-5. O GitHub Pages serve a pasta `docs/` como site, e o dashboard fica
-   disponível em:
+   `docs/security-audit/studio/data/<projeto>/<data>.json`, atualiza o índice (`data/index.json`) e faz commit + push.
+5. O GitHub Pages serve a pasta `docs/` como site, e o dashboard fica disponível em:
 
-   **https://lucianomilani.github.io/gestaudit/security-audit/studio/**
+   **https://lucianomilani.github.io/AI-ditoria/security-audit/studio/**
 
-Ou seja: cada auditoria feita em qualquer PC, para qualquer projeto,
-acaba num único sítio central — sem servidor, sem base de dados, só
-ficheiros estáticos e git.
+Ou seja: cada auditoria feita em qualquer PC, para qualquer projeto, acaba num único sítio central — sem servidor, sem base de dados, só ficheiros estáticos e git.
 
 ## O dashboard, em imagens
 
@@ -116,9 +109,8 @@ O skill vive fora deste repo, em `~/.claude/skills/security-audit/`.
 Para o teres noutra máquina:
 
 1. Copia essa pasta para o `~/.claude/skills/` do PC novo.
-2. Clona este repo (`gestaudit`) nesse PC.
+2. Clona este repo (`AI-ditoria`) nesse PC.
 3. Edita a primeira linha de `STUDIO_REPO_PATH.md` (dentro da pasta do
    skill) para apontar para o caminho local desse clone.
 
-Sem isso, o skill funciona à mesma para auditar código — só não sabe
-onde publicar o resultado.
+Sem isso, o skill funciona à mesma para auditar código — só não sabe onde publicar o resultado.
