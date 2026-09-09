@@ -29,3 +29,19 @@ export function groupRecommendations(findings) {
   }
   return groups
 }
+
+function findingKey(f) {
+  return `${f.file}:${f.line}:${f.id}`
+}
+
+export function diffFindings(runA, runB) {
+  const findingsA = runA.findings || []
+  const findingsB = runB.findings || []
+  const keysA = new Set(findingsA.map(findingKey))
+  const keysB = new Set(findingsB.map(findingKey))
+  return {
+    fixed: findingsA.filter(f => !keysB.has(findingKey(f))),
+    new: findingsB.filter(f => !keysA.has(findingKey(f))),
+    unchanged: findingsB.filter(f => keysA.has(findingKey(f))),
+  }
+}

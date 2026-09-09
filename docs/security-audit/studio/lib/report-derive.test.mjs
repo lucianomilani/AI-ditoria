@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { countBySeverity, countByCategory, groupRecommendations } from './report-derive.mjs'
+import { countBySeverity, countByCategory, groupRecommendations, diffFindings } from './report-derive.mjs'
 
 const findings = [
   { id: 'F1', category: 1, severity: 'critica', file: 'b.ts', line: 5 },
@@ -36,4 +36,53 @@ test('groupRecommendations sorts findings within a group by file then line', () 
   const groups = groupRecommendations(findings)
   const altaGroup = groups.find(g => g.severity === 'alta')
   assert.deepEqual(altaGroup.findings.map(f => f.id), ['F3', 'F2'])
+})
+
+test('diffFindings: identical runs produce nothing fixed and nothing new', () => {
+  const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
+  const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
+  const result = diffFindings(runA, runB)
+  assert.deepEqual(result.fixed, [])
+  assert.deepEqual(result.new, [])
+  assert.equal(result.unchanged.length, 1)
+  assert.equal(result.unchanged[0].id, 'F1')
+})
+
+test('diffFindings: a finding present only in runA is fixed', () => {
+  const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
+  const runB = { findings: [] }
+  const result = diffFindings(runA, runB)
+  assert.equal(result.fixed.length, 1)
+  assert.equal(result.fixed[0].id, 'F1')
+  assert.deepEqual(result.new, [])
+  assert.deepEqual(result.unchanged, [])
+})
+
+test('diffFindings: a finding present only in runB is new', () => {
+  const runA = { findings: [] }
+  const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
+  const result = diffFindings(runA, runB)
+  assert.deepEqual(result.fixed, [])
+  assert.equal(result.new.length, 1)
+  assert.equal(result.new[0].id, 'F1')
+  assert.deepEqual(result.unchanged, [])
+})
+
+test('diffFindings: same file:line re-flagged with a different id in the later run counts as unchanged, not fixed+new', () => {
+  const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta' }] }
+  const runB = { findings: [{ id: 'F3', file: 'a.ts', line: 5, severity: 'critica' }] }
+  const result = diffFindings(runA, runB)
+  assert.equal(result.fixed.length, 1)
+  assert.equal(result.fixed[0].id, 'F1')
+  assert.equal(result.new.length, 1)
+  assert.equal(result.new[0].id, 'F3')
+  assert.deepEqual(result.unchanged, [])
+})
+
+test('diffFindings: matches by exact file:line:id triple, ignoring unrelated fields', () => {
+  const runA = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta', desc: 'old wording' }] }
+  const runB = { findings: [{ id: 'F1', file: 'a.ts', line: 5, severity: 'alta', desc: 'new wording' }] }
+  const result = diffFindings(runA, runB)
+  assert.equal(result.unchanged.length, 1)
+  assert.equal(result.unchanged[0].desc, 'new wording')
 })
