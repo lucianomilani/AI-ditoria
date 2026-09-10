@@ -19,6 +19,9 @@ const SECRET_PATTERNS = [
   { id: 'slack-token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
   { id: 'stripe-key', re: /sk_(live|test)_[A-Za-z0-9]{20,}/g },
   { id: 'openai-key', re: /sk-[A-Za-z0-9]{20,}/g },
+  { id: 'openai-project-key', re: /sk-proj-[A-Za-z0-9_-]{20,}/g },
+  { id: 'anthropic-key', re: /sk-ant-api03-[A-Za-z0-9_-]{20,}/g },
+  { id: 'github-fine-grained-token', re: /github_pat_[A-Za-z0-9_]{20,}/g },
   { id: 'private-key-block', re: /-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g },
   { id: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
 ]
@@ -229,4 +232,46 @@ export function validateFindings(data) {
   }
 
   return { valid: errors.length === 0, errors }
+}
+
+// Runs only when invoked directly (`node validate-findings.mjs findings.json`),
+// not when imported by tests or the dashboard — mirrors the standalone copy
+// at ~/.claude/skills/security-audit/scripts/validate-findings.mjs so this
+// repo's own findings.json can be gated in CI without depending on that
+// skill folder existing on the runner.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const fs = await import('node:fs/promises')
+  const args = process.argv.slice(2)
+  const path = args.find(a => !a.startsWith('--'))
+  const failOnArg = args.find(a => a.startsWith('--fail-on='))
+  if (!path) { console.error('usage: node validate-findings.mjs <findings.json> [--fail-on=<severity>]'); process.exit(2) }
+  let data = JSON.parse(await fs.readFile(path, 'utf8'))
+  const { redacted, hits } = redactSecrets(data)
+  if (hits.length > 0) {
+    data = redacted
+    await fs.writeFile(path, JSON.stringify(data, null, 2) + '\n')
+    console.log(`REDACTED ${hits.length} secret(s)/email(s) before publishing (dashboard is public):`)
+    for (const h of hits) console.log(`  ${h.path} [${h.rule}]`)
+  }
+  const { valid, errors } = validateFindings(data)
+  if (!valid) {
+    console.log(`INVALID:\n${errors.join('\n')}`)
+    process.exit(1)
+  }
+  console.log('VALID')
+  if (failOnArg) {
+    const severity = failOnArg.slice('--fail-on='.length)
+    if (!SEVERITY_ORDER.includes(severity)) {
+      console.error(`--fail-on: "${severity}" must be one of ${SEVERITY_ORDER.join('|')}`)
+      process.exit(2)
+    }
+    const threshold = SEVERITY_ORDER.indexOf(severity)
+    const blocking = data.findings.filter(f => SEVERITY_ORDER.indexOf(f.severity) <= threshold)
+    if (blocking.length > 0) {
+      console.log(`FAIL-ON-${severity.toUpperCase()}:`)
+      for (const f of blocking) console.log(`  ${f.id} [${f.severity}] ${f.desc}`)
+      process.exit(1)
+    }
+  }
+  process.exit(0)
 }

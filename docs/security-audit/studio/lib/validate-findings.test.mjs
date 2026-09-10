@@ -194,6 +194,30 @@ test('redactSecrets masks a real email address', () => {
   assert.equal(redacted.rgpd_panel[0].evidence, 'DPO contact: ***REDACTED***')
 })
 
+test('redactSecrets masks a modern OpenAI project key (sk-proj-...)', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = 'const key = "sk-proj-abcDEF123-xyzABC456_longTailOfCharacters7890"'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.rule === 'openai-project-key'))
+  assert.ok(!redacted.findings[0].code.includes('abcDEF123-xyzABC456'))
+})
+
+test('redactSecrets masks an Anthropic API key (sk-ant-api03-...)', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = 'const key = "sk-ant-api03-abcDEF123-xyzABC456_longTailOfCharacters7890"'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.rule === 'anthropic-key'))
+  assert.ok(!redacted.findings[0].code.includes('abcDEF123-xyzABC456'))
+})
+
+test('redactSecrets masks a GitHub fine-grained personal access token (github_pat_...)', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = 'const token = "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz"'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.rule === 'github-fine-grained-token'))
+  assert.ok(!redacted.findings[0].code.includes('11ABCDEFG0abcdefghijklmnopqrstuvwxyz'))
+})
+
 test('redactSecrets leaves an obvious dev-placeholder default untouched', () => {
   const doc = buildValidDoc()
   doc.findings[0].code = 'secret_key: str = "change-this-api-secret"\npostgres_password: str = "rede_social_techx_dev"'

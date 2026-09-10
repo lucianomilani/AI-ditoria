@@ -162,7 +162,10 @@ grave). Sem a flag, o comportamento é o mesmo de sempre: só valida a
 forma do JSON. Isto corre no CI do projeto *auditado*, não deste repo
 — o AI-ditoria em si não tem pipeline própria.
 
-Exemplo de workflow GitHub Actions no projeto auditado:
+Exemplo de workflow GitHub Actions no projeto auditado. `~/.claude/skills/`
+só existe na máquina de quem tem a skill instalada — não num runner do
+GitHub Actions — por isso o passo faz checkout deste repo (AI-ditoria) à
+parte e corre o validador de lá:
 
 ```yaml
 # .github/workflows/security-audit-gate.yml
@@ -173,7 +176,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node ~/.claude/skills/security-audit/scripts/validate-findings.mjs findings.json --fail-on=alta
+      - uses: actions/checkout@v4
+        with:
+          repository: lucianomilani/AI-ditoria
+          path: ai-ditoria
+      - run: node ai-ditoria/docs/security-audit/studio/lib/validate-findings.mjs findings.json --fail-on=alta
 ```
 
 ### Redação automática de segredos
@@ -373,7 +380,10 @@ severe). Without the flag, behavior is the same as always: only
 validates the JSON shape. This runs in the *audited* project's CI, not
 this repo's — AI-ditoria itself has no pipeline of its own.
 
-Example GitHub Actions workflow in the audited project:
+Example GitHub Actions workflow in the audited project. `~/.claude/skills/`
+only exists on a machine that has the skill installed — not on a GitHub
+Actions runner — so this step checks out this repo (AI-ditoria) separately
+and runs the validator from there:
 
 ```yaml
 # .github/workflows/security-audit-gate.yml
@@ -384,7 +394,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node ~/.claude/skills/security-audit/scripts/validate-findings.mjs findings.json --fail-on=alta
+      - uses: actions/checkout@v4
+        with:
+          repository: lucianomilani/AI-ditoria
+          path: ai-ditoria
+      - run: node ai-ditoria/docs/security-audit/studio/lib/validate-findings.mjs findings.json --fail-on=alta
 ```
 
 ### Automatic secret redaction

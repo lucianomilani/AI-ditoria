@@ -375,130 +375,17 @@
   </main>
 </div>
 
-<script>
+<script type="module">
+  import { CATEGORY_NAMES, SEVERITY_ORDER, SEVERITY_COLORS, STRENGTH_COLOR } from './lib/constants.mjs';
+  import { countBySeverity, countByCategory, groupRecommendations, diffFindings } from './lib/report-derive.mjs';
+  import { buildAllIssues } from './lib/issue-markdown.mjs';
+
 (function () {
   'use strict';
 
   /* =====================================================================
-   * PORTED CONSTANTS (verbatim from docs/security-audit/studio/lib/constants.mjs)
-   * ===================================================================== */
-  const CATEGORY_NAMES = {
-    1: 'Banco sem tranca (isolamento e injeção)',
-    2: 'Permissão definida no navegador',
-    3: 'IDOR',
-    4: 'Chaves expostas',
-    5: 'Inputs sem tratamento (XSS)',
-    6: 'Autenticação, sessões e criptografia',
-    7: 'SSRF',
-    8: 'Integridade de escrita (CSRF/path/upload/concorrência)',
-    9: 'Rate limiting, força bruta e exhaustion',
-    10: 'Dependências, IaC e supply-chain',
-    11: 'Vazamento de informação',
-    12: 'Compliance RGPD',
-  };
-
-  const SEVERITY_ORDER = ['critica', 'alta', 'media', 'baixa', 'informativa'];
-
-  const SEVERITY_COLORS = {
-    critica: '#B91C1C',
-    alta: '#EA580C',
-    media: '#D97706',
-    baixa: '#2563EB',
-    informativa: '#6B7280',
-  };
-
-  const STRENGTH_COLOR = '#059669';
-
-  /* =====================================================================
-   * PORTED FUNCTIONS (verbatim bodies from lib/report-derive.mjs and
-   * lib/issue-markdown.mjs — export/import keywords dropped since this
-   * is a single non-module inline script)
-   * ===================================================================== */
-
-  function countBySeverity(findings) {
-    const counts = Object.fromEntries(SEVERITY_ORDER.map(s => [s, 0]));
-    for (const f of findings) counts[f.severity] += 1;
-    return SEVERITY_ORDER.map(severity => ({
-      severity, count: counts[severity], color: SEVERITY_COLORS[severity],
-    }));
-  }
-
-  function countByCategory(findings) {
-    const counts = Object.fromEntries(Object.keys(CATEGORY_NAMES).map(id => [Number(id), 0]));
-    for (const f of findings) counts[f.category] += 1;
-    return Object.keys(CATEGORY_NAMES).map(Number).map(id => ({
-      id, name: CATEGORY_NAMES[id], count: counts[id],
-    }));
-  }
-
-  function groupRecommendations(findings) {
-    const groups = [];
-    let priorityIndex = 1;
-    for (const severity of SEVERITY_ORDER) {
-      const matches = findings
-        .filter(f => f.severity === severity)
-        .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
-      if (matches.length === 0) continue;
-      groups.push({ priority: `P${priorityIndex}`, severity, findings: matches });
-      priorityIndex += 1;
-    }
-    return groups;
-  }
-
-  function buildIssueMarkdown(groupIds, findingsById, index) {
-    const group = groupIds.map(id => findingsById.get(id));
-    const severities = group.map(f => f.severity);
-    const worstSeverity = SEVERITY_ORDER.find(s => severities.includes(s));
-    const labels = ['security', worstSeverity];
-    if (group.some(f => f.rgpd_article)) labels.push('rgpd');
-
-    const title = group.length === 1
-      ? group[0].desc.slice(0, 80)
-      : `${group.length} achados relacionados: ${group.map(f => f.id).join(', ')}`;
-
-    const sections = group.map(f => [
-      `#### ${f.id} — ${f.file}:${f.line}`,
-      '',
-      `**Descrição:** ${f.desc}`,
-      '',
-      '**Evidência:**',
-      '```',
-      f.code,
-      '```',
-      '',
-      `**Por que é explorável:** ${f.why}`,
-      '',
-      `**Impacto:** ${f.impact}`,
-      '',
-      `**Sugestão de correção:** ${f.fix}`,
-      '',
-      '**Critérios de aceite:**',
-      ...f.acceptance.map(a => `- [ ] ${a}`),
-    ].join('\n'));
-
-    return [
-      `--- ISSUE ${index} ---`,
-      `## [Segurança] ${title}`,
-      '',
-      `**Labels:** ${labels.join(', ')}`,
-      '',
-      ...sections,
-      '',
-      `--- FIM ISSUE ${index} ---`,
-    ].join('\n');
-  }
-
-  function buildAllIssues(issueGroups, findings) {
-    const findingsById = new Map(findings.map(f => [f.id, f]));
-    return issueGroups.map((group, i) => buildIssueMarkdown(group, findingsById, i + 1));
-  }
-
-  function slugify(project) {
-    return project.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
-  }
-
-  /* =====================================================================
-   * PRESENTATION HELPERS (not ported — display-only additions)
+   * PRESENTATION HELPERS (display-only additions on top of the imported
+   * constants.mjs/report-derive.mjs/issue-markdown.mjs logic above)
    * ===================================================================== */
 
   const SEVERITY_LABELS = {
@@ -582,24 +469,6 @@
 
   function checklistKey(slug, auditDate, findingId) {
     return `${slug}/${auditDate}/${findingId}`;
-  }
-
-  /* =====================================================================
-   * PORTED FUNCTION (verbatim from docs/security-audit/studio/lib/report-derive.mjs)
-   * ===================================================================== */
-  function findingKey(f) {
-    return `${f.file}:${f.line}`;
-  }
-  function diffFindings(runA, runB) {
-    const findingsA = runA.findings || [];
-    const findingsB = runB.findings || [];
-    const keysA = new Set(findingsA.map(findingKey));
-    const keysB = new Set(findingsB.map(findingKey));
-    return {
-      fixed: findingsA.filter(f => !keysB.has(findingKey(f))),
-      new: findingsB.filter(f => !keysA.has(findingKey(f))),
-      unchanged: findingsB.filter(f => keysA.has(findingKey(f))),
-    };
   }
 
   const state = {
