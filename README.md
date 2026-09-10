@@ -18,6 +18,26 @@ Não é uma app com backend, não tem `npm install` gigante, não tem
 segredos escondidos. É JSON, HTML puro e um dashboard estático servido
 pelo GitHub Pages. Simples de propósito.
 
+### Objetivo e foco principal
+
+O foco deste projeto **não é o dashboard** — é a **skill** `/security-audit`
+em si: uma metodologia de auditoria de segurança + RGPD, stack-agnostic,
+repetível e consistente entre projetos diferentes. O dashboard existe só
+para dar um sítio central e comparável a esse trabalho (histórico por
+projeto, comparar auditorias, gerar issues) — sem ele, a skill continua a
+auditar código na mesma.
+
+A skill é feita de **ficheiros simples e portáteis**: um `SKILL.md`
+(instruções em markdown), docs de referência em `reference/*.md`, e um
+único script Node sem dependências (`validate-findings.mjs`) que valida e
+mascara segredos antes de publicar. Nada disto depende de APIs
+proprietárias — é o formato de "skill" que o Claude Code usa
+(`~/.claude/skills/<nome>/`), mas a lógica em si funciona em qualquer
+agente de coding com um conceito equivalente de skill/prompt reutilizável
+(ex.: OpenCode, ou outro agente que suporte pastas de skills). Adaptar
+para outro agente é essencialmente copiar a pasta e apontar o trigger —
+não é preciso reescrever a metodologia.
+
 ### Quickstart
 
 ```bash
@@ -221,6 +241,26 @@ stored and published.
 Not a backend app, no giant `npm install`, no hidden secrets. It's
 JSON, plain HTML, and a static dashboard served by GitHub Pages.
 Simple by design.
+
+### Purpose and main focus
+
+The focus of this project is **not the dashboard** — it's the
+`/security-audit` **skill** itself: a stack-agnostic, repeatable, consistent
+security + GDPR audit methodology across different projects. The dashboard
+only exists to give that work a central, comparable home (per-project
+history, compare audits, generate issues) — without it, the skill still
+audits code just fine.
+
+The skill is made of **plain, portable files**: a `SKILL.md` (markdown
+instructions), reference docs in `reference/*.md`, and a single
+dependency-free Node script (`validate-findings.mjs`) that validates and
+redacts secrets before publishing. None of it depends on proprietary APIs —
+it uses the "skill" format Claude Code expects
+(`~/.claude/skills/<name>/`), but the logic itself works under any coding
+agent with an equivalent skill/reusable-prompt concept (e.g. OpenCode, or
+any other agent that supports skill folders). Porting it to another agent
+is essentially copying the folder and wiring the trigger — not rewriting
+the methodology.
 
 ### Quickstart
 
