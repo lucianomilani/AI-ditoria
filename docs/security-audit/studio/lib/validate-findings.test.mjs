@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateFindings } from './validate-findings.mjs'
+import { validateFindings, scanForSecrets, redactSecrets } from './validate-findings.mjs'
 import { CATEGORY_NAMES } from './constants.mjs'
 
 function buildValidDoc() {
@@ -158,4 +158,53 @@ test('rejects a category whose name does not match the fixed CATEGORY_NAMES entr
   const { valid, errors } = validateFindings(doc)
   assert.equal(valid, false)
   assert.ok(errors.some(e => e.includes('categories[2]: name must be')))
+})
+
+test('redactSecrets masks a real-looking AWS access key, keeping the document valid', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = 'const key = "AKIAIOSFODNN7EXAMPLE123"'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.path === 'findings[0].code' && h.rule === 'aws-access-key'))
+  assert.ok(!redacted.findings[0].code.includes('AKIAIOSFODNN7EXAMPLE123'))
+  assert.ok(redacted.findings[0].code.includes('***REDACTED***'))
+  assert.equal(validateFindings(redacted).valid, true)
+})
+
+test('redactSecrets masks a PEM private key block entirely', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = '-----BEGIN RSA PRIVATE KEY-----\nMIIExample\n-----END RSA PRIVATE KEY-----'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.rule === 'private-key-block'))
+  assert.ok(!redacted.findings[0].code.includes('MIIExample'))
+})
+
+test('redactSecrets masks a non-placeholder password assignment, keeping the field name', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = 'password = "Tr0ub4dor&3xtra"'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.rule === 'secret-assignment'))
+  assert.equal(redacted.findings[0].code, 'password = "***REDACTED***"')
+})
+
+test('redactSecrets masks a real email address', () => {
+  const doc = buildValidDoc()
+  doc.rgpd_panel[0].evidence = 'DPO contact: dpo@empresa-real.pt'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.ok(hits.some(h => h.rule === 'email'))
+  assert.equal(redacted.rgpd_panel[0].evidence, 'DPO contact: ***REDACTED***')
+})
+
+test('redactSecrets leaves an obvious dev-placeholder default untouched', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].code = 'secret_key: str = "change-this-api-secret"\npostgres_password: str = "rede_social_techx_dev"'
+  const { redacted, hits } = redactSecrets(doc)
+  assert.deepEqual(hits, [])
+  assert.equal(redacted.findings[0].code, doc.findings[0].code)
+})
+
+test('scanForSecrets reports the JSON path of the offending field', () => {
+  const doc = buildValidDoc()
+  doc.findings[0].desc = 'token: "AIzaSyD-abcdefghijklmnopqrstuvwxyz12345"'
+  const hits = scanForSecrets(doc)
+  assert.ok(hits.some(h => h.path === 'findings[0].desc' && h.rule === 'google-api-key'))
 })

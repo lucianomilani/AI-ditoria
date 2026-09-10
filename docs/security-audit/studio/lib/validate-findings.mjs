@@ -8,6 +8,89 @@ const REQUIRED_TOP_LEVEL = [
 
 const CATEGORY_IDS = Object.keys(CATEGORY_NAMES).map(Number)
 
+// High-confidence, known real-world secret formats. The dashboard these
+// findings get published to is public, so any real credential quoted
+// verbatim in a finding gets masked before publish — see redactSecrets().
+const SECRET_PATTERNS = [
+  { id: 'aws-access-key', re: /AKIA[0-9A-Z]{16}/g },
+  { id: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{36,}/g },
+  { id: 'gitlab-token', re: /glpat-[A-Za-z0-9_-]{20,}/g },
+  { id: 'google-api-key', re: /AIza[0-9A-Za-z_-]{35}/g },
+  { id: 'slack-token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
+  { id: 'stripe-key', re: /sk_(live|test)_[A-Za-z0-9]{20,}/g },
+  { id: 'openai-key', re: /sk-[A-Za-z0-9]{20,}/g },
+  { id: 'private-key-block', re: /-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g },
+  { id: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
+]
+
+// A quoted value assigned to a password/secret/token/key-shaped name.
+// Placeholder-looking values (dev defaults, "change-this-*", etc.) are
+// exactly the kind of finding this tool reports on — they must stay
+// describable in prose, so they're excluded from this check.
+const SECRET_ASSIGNMENT_RE = /(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|private[_-]?key)["']?\s*[:=]\s*["']([^"']{8,})["']/gi
+
+const PLACEHOLDER_VALUE_RE = /^(change|generate|your[_-]|example|placeholder|xxx|todo|redacted|dev$|test$|<|\{|\$\{)/i
+
+function isPlaceholderValue(value) {
+  if (PLACEHOLDER_VALUE_RE.test(value)) return true
+  // low-entropy values like "aaaaaaaa" or "12345678" aren't real secrets
+  return new Set(value).size < 5
+}
+
+function walkStrings(node, path, cb) {
+  if (typeof node === 'string') {
+    cb(node, path)
+  } else if (Array.isArray(node)) {
+    node.forEach((item, i) => walkStrings(item, `${path}[${i}]`, cb))
+  } else if (node !== null && typeof node === 'object') {
+    for (const [key, value] of Object.entries(node)) {
+      walkStrings(value, path ? `${path}.${key}` : key, cb)
+    }
+  }
+}
+
+function mapStrings(node, fn) {
+  if (typeof node === 'string') return fn(node)
+  if (Array.isArray(node)) return node.map(item => mapStrings(item, fn))
+  if (node !== null && typeof node === 'object') {
+    const out = {}
+    for (const [key, value] of Object.entries(node)) out[key] = mapStrings(value, fn)
+    return out
+  }
+  return node
+}
+
+export function scanForSecrets(data) {
+  const hits = []
+  walkStrings(data, '', (str, path) => {
+    for (const { id, re } of SECRET_PATTERNS) {
+      if (new RegExp(re.source, re.flags.replace('g', '')).test(str)) hits.push({ path, rule: id })
+    }
+    for (const match of str.matchAll(SECRET_ASSIGNMENT_RE)) {
+      const value = match[1]
+      if (!isPlaceholderValue(value)) hits.push({ path, rule: 'secret-assignment' })
+    }
+  })
+  return hits
+}
+
+// Masks real secrets/emails found anywhere in the document so the public
+// dashboard never shows them, while leaving everything else — including
+// placeholder/example values the finding is describing — untouched.
+export function redactSecrets(data) {
+  const hits = scanForSecrets(data)
+  const redacted = mapStrings(data, str => {
+    let out = str
+    for (const { re } of SECRET_PATTERNS) out = out.replace(re, '***REDACTED***')
+    out = out.replace(SECRET_ASSIGNMENT_RE, (full, value) => {
+      if (isPlaceholderValue(value)) return full
+      return full.replace(value, '***REDACTED***')
+    })
+    return out
+  })
+  return { redacted, hits }
+}
+
 export function validateFindings(data) {
   const errors = []
 

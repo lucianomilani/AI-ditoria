@@ -154,6 +154,27 @@ jobs:
       - run: node ~/.claude/skills/security-audit/scripts/validate-findings.mjs findings.json --fail-on=alta
 ```
 
+### Redação automática de segredos
+
+O dashboard é público (GitHub Pages, sem autenticação) — logo o
+`validate-findings.mjs` também mascara automaticamente qualquer chave de
+API, password real ou email encontrado no texto de um achado, antes de
+gravar o ficheiro:
+
+```
+REDACTED 2 secret(s)/email(s) before publishing (dashboard is public):
+  findings[2].code [aws-access-key]
+  findings[5].code [email]
+```
+
+O valor real é substituído por `***REDACTED***` diretamente no
+`findings.json`; a categoria, severidade, ficheiro:linha e o resto da
+explicação do achado continuam publicados normalmente — só o valor
+sensível some. Defaults de exemplo/placeholder (`"change-this-*"`,
+`"your-api-key"`, etc.) não são tocados, porque são precisamente o que
+o achado está a descrever. Isto corre sempre, sem flag — não há opção
+de publicar sem mascarar.
+
 ### Como correr os testes
 
 Sem npm, sem build step — o Node já tem test runner embutido:
@@ -320,6 +341,26 @@ jobs:
       - uses: actions/checkout@v4
       - run: node ~/.claude/skills/security-audit/scripts/validate-findings.mjs findings.json --fail-on=alta
 ```
+
+### Automatic secret redaction
+
+The dashboard is public (GitHub Pages, no auth) — so
+`validate-findings.mjs` also automatically masks any real API key,
+password, or email found in a finding's text before saving the file:
+
+```
+REDACTED 2 secret(s)/email(s) before publishing (dashboard is public):
+  findings[2].code [aws-access-key]
+  findings[5].code [email]
+```
+
+The real value is replaced with `***REDACTED***` directly in
+`findings.json`; the category, severity, file:line, and the rest of
+the finding's explanation stay published as normal — only the
+sensitive value disappears. Example/placeholder defaults
+(`"change-this-*"`, `"your-api-key"`, etc.) are left untouched, since
+they're exactly what the finding is describing. This always runs, no
+flag — there's no option to publish without masking.
 
 ### Running the tests
 
