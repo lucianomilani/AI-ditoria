@@ -1,4 +1,6 @@
-# AI-ditoria - (gestaudit)
+# AI-ditoria - (AI-dict)
+
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](LICENSE)
 
 Repositório do **Audit Report Studio** — a base onde ficam guardados e
 publicados os relatórios de auditoria de segurança + RGPD gerados pelo
