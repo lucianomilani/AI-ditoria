@@ -144,6 +144,8 @@ publicado, não a ferramenta que o produz.
   ver corrigidos / novos / ainda presentes entre elas — útil para
   confirmar que uma correção realmente aconteceu, ou apanhar
   regressões.
+- **Exportar PDF**: botão que aciona `window.print()` do browser — gera
+  um PDF do relatório completo direto do dashboard, sem serviço externo.
 
 ### Gate para CI
 
@@ -352,6 +354,9 @@ browser:
   sidebar button appears to pick two dates and see fixed / new / still
   present between them — useful to confirm a fix actually happened, or
   catch regressions.
+- **Export PDF**: a button that triggers the browser's `window.print()`
+  — generates a PDF of the full report straight from the dashboard, no
+  external service.
 
 ### CI gate
 
