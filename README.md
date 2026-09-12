@@ -110,18 +110,22 @@ docs/
       index.html             ← toda a app (sem framework, JS puro)
       lib/                   ← lógica partilhada (validação, derivação, testes)
       data/                  ← os relatórios publicados (index.json + um JSON por auditoria)
-    legacy/
-      data.py                ← script antigo de amostra, anterior a este fluxo (não é o gerador atual)
-      requirements.txt       ← dependências desse script antigo
-  superpowers/
-    plans/, specs/           ← desenho original desta ferramenta (v1 → v2)
+skills/
+  security-audit/            ← o skill em si — copia isto para ~/.claude/skills/
+    SKILL.md                 ← instruções que o Claude Code segue
+    reference/                ← docs de referência (categorias, schema)
+    scripts/validate-findings.mjs  ← validador + máscara de segredos
+    STUDIO_REPO_PATH.md       ← edita a 1ª linha para o caminho local do teu clone
 ```
 
 A parte que efetivamente gera os relatórios — o skill `/security-audit`
-— **não vive neste repo**. Fica em `~/.claude/skills/security-audit/`
-(config local do Claude Code), porque precisa de correr sobre *qualquer*
-outro projeto, não só este. O que este repo guarda é o resultado
-publicado, não a ferramenta que o produz.
+— vive neste repo em [`skills/security-audit/`](skills/security-audit/),
+mas **corre** a partir de `~/.claude/skills/security-audit/` (config
+local do Claude Code), porque precisa de correr sobre *qualquer* outro
+projeto, não só este. Este repo guarda a fonte do skill e o resultado
+publicado; instalar é copiar a pasta para o sítio certo (ver
+["Correr esta ferramenta noutro PC"](#correr-esta-ferramenta-noutro-pc)
+abaixo).
 
 ### O dashboard
 
@@ -223,15 +227,17 @@ isso explicitamente em vez de fingir que é a mesma coisa.
 
 ### Correr esta ferramenta noutro PC
 
-O skill vive fora deste repo, em `~/.claude/skills/security-audit/`.
-Para o teres noutra máquina:
+O skill vive dentro deste repo, em `skills/security-audit/`, mas o
+Claude Code só o encontra se estiver em `~/.claude/skills/`. Para o
+teres numa máquina nova:
 
-1. Copia essa pasta para o `~/.claude/skills/` do PC novo.
-2. Clona este repo (`AI-ditoria`) nesse PC.
-3. Edita a primeira linha de `STUDIO_REPO_PATH.md` (dentro da pasta do
-   skill) para apontar para o caminho local desse clone.
+1. Clona este repo (`AI-ditoria`).
+2. Copia (ou symlink) `skills/security-audit/` para
+   `~/.claude/skills/security-audit/`.
+3. Edita a primeira linha de `~/.claude/skills/security-audit/STUDIO_REPO_PATH.md`
+   para apontar para o caminho local deste clone.
 
-Sem isso, o skill funciona à mesma para auditar código — só não sabe onde publicar o resultado.
+Sem o passo 3, o skill funciona à mesma para auditar código — só não sabe onde publicar o resultado.
 
 ### Licença
 
@@ -328,18 +334,23 @@ docs/
       index.html             ← the whole app (no framework, plain JS)
       lib/                   ← shared logic (validation, derivation, tests)
       data/                  ← published reports (index.json + one JSON per audit)
-    legacy/
-      data.py                ← old sample script, predates this flow (not the current generator)
-      requirements.txt       ← that old script's dependencies
-  superpowers/
-    plans/, specs/           ← original design of this tool (v1 → v2)
+skills/
+  security-audit/            ← the skill itself — copy this into ~/.claude/skills/
+    SKILL.md                 ← instructions Claude Code follows
+    reference/                ← reference docs (categories, schema)
+    scripts/validate-findings.mjs  ← validator + secret redaction
+    STUDIO_REPO_PATH.md       ← edit line 1 to your clone's local path
 ```
 
 The part that actually generates the reports — the `/security-audit`
-skill — **does not live in this repo**. It lives in
-`~/.claude/skills/security-audit/` (local Claude Code config), because
-it needs to run against *any* project, not just this one. What this
-repo stores is the published result, not the tool that produces it.
+skill — lives in this repo at
+[`skills/security-audit/`](skills/security-audit/), but it **runs**
+from `~/.claude/skills/security-audit/` (local Claude Code config),
+because it needs to run against *any* project, not just this one. This
+repo holds the skill's source and the published result; installing it
+means copying the folder into place (see
+["Running this tool on another machine"](#running-this-tool-on-another-machine)
+below).
 
 ### The dashboard
 
@@ -440,15 +451,18 @@ pretending it's the same thing.
 
 ### Running this tool on another machine
 
-The skill lives outside this repo, in
-`~/.claude/skills/security-audit/`. To have it on another machine:
+The skill lives inside this repo, in `skills/security-audit/`, but
+Claude Code only finds it in `~/.claude/skills/`. To set it up on a new
+machine:
 
-1. Copy that folder to the new machine's `~/.claude/skills/`.
-2. Clone this repo (`AI-ditoria`) on that machine.
-3. Edit the first line of `STUDIO_REPO_PATH.md` (inside the skill
-   folder) to point to that clone's local path.
+1. Clone this repo (`AI-ditoria`).
+2. Copy (or symlink) `skills/security-audit/` to
+   `~/.claude/skills/security-audit/`.
+3. Edit the first line of
+   `~/.claude/skills/security-audit/STUDIO_REPO_PATH.md` to point to
+   that clone's local path.
 
-Without that, the skill still works to audit code — it just doesn't
+Without step 3, the skill still works to audit code — it just doesn't
 know where to publish the result.
 
 ### License
