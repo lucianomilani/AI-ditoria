@@ -63,7 +63,7 @@ test('rejects issue_groups referencing an unknown finding id', () => {
   assert.ok(errors.some(e => e.includes('F404')))
 })
 
-test('rejects a categories list missing one of the 12 fixed ids', () => {
+test('rejects a categories list missing one of the 13 fixed ids', () => {
   const doc = buildValidDoc()
   doc.categories = doc.categories.filter(c => c.id !== 12)
   const { valid, errors } = validateFindings(doc)

@@ -145,11 +145,12 @@ errado, se `STUDIO_REPO_PATH.md` ainda apontar para outro clone).
 1. Corres `/security-audit` (ou `/security-audit <caminho>`) num
    projeto qualquer — pode ser React, PHP, o que for.
 2. O skill detecta a stack desse projeto, audita-o linha a linha contra
-   **12 categorias fixas**: isolamento multi-tenant e SQL/NoSQL injection,
+   **13 categorias fixas**: isolamento multi-tenant e SQL/NoSQL injection,
    permissões só no frontend, IDOR, chaves expostas, XSS, auth/sessões e
    uso indevido de criptografia, SSRF, CSRF/path/upload e race
    conditions/lógica de negócio, rate limiting e exhaustion de recursos,
-   dependências/IaC e supply-chain, fuga de informação, e compliance RGPD.
+   dependências/IaC e supply-chain, fuga de informação, compliance RGPD, e
+   código malicioso/backdoor.
 3. Gera um `findings.json` com tudo o que encontrou — achados, pontos fortes, painel RGPD, cobertura por categoria — e valida esse ficheiro com um script (`validate-findings.mjs`) antes de aceitar nada.
 4. Escreve esse JSON aqui, dentro de
    `docs/security-audit/studio/data/<projeto>/<data>.json`, atualiza o índice (`data/index.json`) e faz commit + push.
@@ -169,7 +170,7 @@ Sumário executivo — achados por severidade e categoria:
 
 ![Resumo executivo](screenshots/01-resumo-executivo.png)
 
-Cobertura por categoria — maturidade estimada em cada uma das 12 categorias:
+Cobertura por categoria — maturidade estimada em cada uma das 13 categorias:
 
 ![Cobertura por categoria](screenshots/02-cobertura.png)
 
@@ -462,12 +463,12 @@ different clone).
 1. Run `/security-audit` (or `/security-audit <path>`) on any project
    — React, PHP, whatever it is.
 2. The skill detects that project's stack and audits it line by line
-   against **12 fixed categories**: multi-tenant isolation and
+   against **13 fixed categories**: multi-tenant isolation and
    SQL/NoSQL injection, frontend-only permission checks, IDOR, exposed
    secrets, XSS, auth/session handling and crypto misuse, SSRF,
    CSRF/path/upload and race conditions/business logic, rate limiting
    and resource exhaustion, dependency/IaC/supply-chain hygiene,
-   information disclosure, and GDPR compliance.
+   information disclosure, GDPR compliance, and malicious code/backdoors.
 3. It generates a `findings.json` with everything it found —
    findings, strengths, GDPR panel, per-category coverage — and
    validates that file with a script (`validate-findings.mjs`) before

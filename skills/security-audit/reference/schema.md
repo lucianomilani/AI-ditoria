@@ -4,12 +4,12 @@ See `../scripts/validate-findings.mjs` for the authoritative, executable
 version of these rules. Summary:
 
 - Top level: `project`, `audit_date` (YYYY-MM-DD), `scope`, `stack[]`
-  ({layer, detail}), `methodology_note`, `categories[]` (all 12 fixed
+  ({layer, detail}), `methodology_note`, `categories[]` (all 13 fixed
   ids, each `{id, name, maturity 0-100, applicable, na_reason}`),
   `findings[]`, `strengths[]`, `weaknesses` ({security[], rgpd[]}),
   `rgpd_panel[]`, `scans[]`, `sbom[]`, `limits[]`, `issue_groups[][]`.
 - `findings[]` item: `id` (e.g. "F1", "R1" for RGPD-specific),
-  `category` (1-12), `severity` (`critica|alta|media|baixa|informativa`),
+  `category` (1-13), `severity` (`critica|alta|media|baixa|informativa`),
   `file`, `line`, `cwe`, `owasp`, `desc`, `code` (verbatim snippet),
   `why`, `impact`, `fix`, `acceptance[]` (checklist strings),
   `rgpd_article` (string or null), `exploitability_notes` (string or

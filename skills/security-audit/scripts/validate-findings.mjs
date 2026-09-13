@@ -17,6 +17,7 @@ const CATEGORY_NAMES = {
   10: 'Dependências, IaC e supply-chain',
   11: 'Vazamento de informação',
   12: 'Compliance RGPD',
+  13: 'Código malicioso / backdoor',
 }
 const SEVERITY_ORDER = ['critica', 'alta', 'media', 'baixa', 'informativa']
 const RGPD_STATUS_VALUES = ['conforme', 'nao_conforme', 'nao_verificada', 'nao_aplicavel']

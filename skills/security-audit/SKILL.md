@@ -1,13 +1,13 @@
 ---
 name: security-audit
-description: "Audits any codebase for the 12 fixed security/RGPD-compliance categories (tenant isolation & injection, UI-only permission checks, IDOR, hardcoded secrets, XSS, auth/session handling & crypto misuse, SSRF, CSRF/path/upload/concurrency integrity, rate limiting & resource exhaustion, dependency/IaC/supply-chain hygiene, information disclosure, RGPD compliance), stack-agnostic — detects the target's language/framework/ORM/auth/frontend/deploy setup first, then maps each category to it. Writes a findings.json and updates the shared Audit Report Studio dashboard. Trigger: /security-audit."
+description: "Audits any codebase for the 13 fixed security/RGPD-compliance categories (tenant isolation & injection, UI-only permission checks, IDOR, hardcoded secrets, XSS, auth/session handling & crypto misuse, SSRF, CSRF/path/upload/concurrency integrity, rate limiting & resource exhaustion, dependency/IaC/supply-chain hygiene, information disclosure, RGPD compliance, malicious code/backdoors), stack-agnostic — detects the target's language/framework/ORM/auth/frontend/deploy setup first, then maps each category to it. Writes a findings.json and updates the shared Audit Report Studio dashboard. Trigger: /security-audit."
 ---
 
 # /security-audit
 
-Audits the current repo (or a given path) against 12 fixed categories —
-security + RGPD/compliance — and publishes the result to a shared,
-multi-project browser dashboard.
+Audits the current repo (or a given path) against 13 fixed categories —
+security + RGPD/compliance, including deliberately malicious code — and
+publishes the result to a shared, multi-project browser dashboard.
 
 **Scope note:** category 12 and every `rgpd_article` citation refer to the
 EU Regulation (EU) 2016/679 (RGPD/GDPR) specifically — article numbers are
@@ -29,7 +29,7 @@ equivalent.
 1. **Detect the stack**: language, framework, ORM/query builder, auth
    mechanism, frontend framework (if any), deploy files (Docker/CI/Helm/
    Terraform). State this explicitly before auditing.
-2. **Read `reference/categories.md`** and map each of the 12 categories
+2. **Read `reference/categories.md`** and map each of the 13 categories
    to this stack's concrete equivalent. If a category's surface doesn't
    exist here (e.g. no frontend → most of category 2 doesn't apply), say
    so explicitly — don't force a finding.

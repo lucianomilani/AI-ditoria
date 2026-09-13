@@ -16,10 +16,10 @@ test('countBySeverity returns all 5 severities in fixed order, zero-filled', () 
   assert.equal(result[0].color, '#B91C1C')
 })
 
-test('countByCategory returns all 12 categories in id order, zero-filled', () => {
+test('countByCategory returns all 13 categories in id order, zero-filled', () => {
   const result = countByCategory(findings)
-  assert.equal(result.length, 12)
-  assert.deepEqual(result.map(r => r.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  assert.equal(result.length, 13)
+  assert.deepEqual(result.map(r => r.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
   assert.equal(result[0].count, 2)
   assert.equal(result[2].count, 2)
   assert.equal(result[1].count, 0)

@@ -1,4 +1,4 @@
-# 12 categorias (fixas, mesma ordem sempre)
+# 13 categorias (fixas, mesma ordem sempre)
 
 Para cada categoria: detecte primeiro o mecanismo equivalente na stack do
 projeto alvo, depois audite. Se a stack não tiver a superfície da
@@ -59,3 +59,18 @@ achado.
     retenção (Art. 5), dados sensíveis (Art. 9), decisão automatizada
     (Art. 22), transparência (Art. 12-13), notificação de violação
     (Art. 33-34), processadores/terceiros (Art. 28).
+13. **Código malicioso / backdoor** — lógica deliberadamente maliciosa
+    plantada no código, distinta de vulnerabilidade acidental: payload
+    ofuscado/codificado (base64, hex, eval em cadeia) sem razão de negócio
+    aparente; exfiltração de dados para destino não documentado (webhook
+    externo, DNS, email); reverse shell ou execução remota de comando
+    escondida; backdoor de acesso (conta/senha mestra oculta, bypass de
+    auth por header/flag secreto); logic bomb (comportamento condicionado
+    a data/env/utilizador específico); crypto miner; script de
+    build/postinstall que busca e executa código remoto sem relação com a
+    funcionalidade declarada (sobrepõe-se ao supply-chain da categoria 10,
+    mas aqui o foco é a intenção maliciosa, não a origem da dependência);
+    instrução escondida em comentário/config dirigida a um agente de IA
+    que audita ou executa o código (prompt injection contra o próprio
+    auditor). Malícia confirmada é sempre severidade crítica, sem
+    exceção.
