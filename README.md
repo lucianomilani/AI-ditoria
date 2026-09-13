@@ -1,6 +1,6 @@
 # AI-ditoria - (AI-dict)
 
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Dashboard live](https://img.shields.io/badge/dashboard-live-brightgreen.svg)](https://lucianomilani.github.io/AI-ditoria/security-audit/studio/)
 [![Tests: node --test](https://img.shields.io/badge/tests-node--test-blue.svg)](#como-correr-os-testes)
 
@@ -49,6 +49,96 @@ não é preciso reescrever a metodologia.
 # 3. abre o dashboard
 open https://lucianomilani.github.io/AI-ditoria/security-audit/studio/
 ```
+
+Isto só funciona se já tiveres a skill instalada e o dashboard configurado — ver a secção seguinte.
+
+### Instalação e utilização
+
+Três passos: instalar a skill no teu sistema, usá-la num projeto, e
+(opcional) teres o teu próprio dashboard público em vez de publicares
+no deste repo.
+
+#### 1. Instalar a skill
+
+A fonte da skill vive neste repo, em `skills/security-audit/`. O
+Claude Code só a reconhece se estiver em `~/.claude/skills/`. Duas
+formas de a instalar:
+
+**A — clone completo** (traz também o dashboard, útil se vais publicar
+os teus relatórios neste repo ou num fork):
+
+```bash
+git clone https://github.com/<o-teu-user>/AI-ditoria.git
+cp -r AI-ditoria/skills/security-audit ~/.claude/skills/security-audit
+```
+
+(usa symlink em vez de `cp` se quiseres apanhar updates da skill com um
+simples `git pull` no clone, sem repetir a cópia.)
+
+**B — só a pasta da skill** (não queres o dashboard nem o histórico de
+relatórios, só a metodologia de auditoria):
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/<o-teu-user>/AI-ditoria.git
+cd AI-ditoria
+git sparse-checkout set skills/security-audit
+cp -r skills/security-audit ~/.claude/skills/security-audit
+```
+
+Sem `git` disponível, uma alternativa de uma linha (via subversion,
+que o GitHub expõe para qualquer repo público):
+
+```bash
+svn export https://github.com/<o-teu-user>/AI-ditoria/trunk/skills/security-audit ~/.claude/skills/security-audit
+```
+
+Nos dois casos, o resultado é o mesmo: a pasta `security-audit/`
+dentro de `~/.claude/skills/`, pronta a usar.
+
+Depois edita a 1ª linha de
+`~/.claude/skills/security-audit/STUDIO_REPO_PATH.md` para o caminho
+absoluto desse clone (ex.: `/home/tu/AI-ditoria`) — é ali que a skill
+vai escrever e publicar os relatórios.
+
+#### 2. Usar a skill
+
+Dentro de **qualquer** projeto que queiras auditar (não precisa de ser
+este repo nem estar relacionado com ele):
+
+```bash
+cd /caminho/do/projeto/a/auditar
+/security-audit
+```
+
+Segue o fluxo descrito na secção seguinte: deteta a stack, audita
+linha a linha, gera e valida o `findings.json`, publica no dashboard
+apontado em `STUDIO_REPO_PATH.md` e faz commit + push aí automaticamente.
+
+#### 3. Teres o teu próprio dashboard (fork)
+
+Por omissão, o passo 8 da skill publica no clone apontado em
+`STUDIO_REPO_PATH.md` e corre `git push` — isso vai para o `origin`
+configurado *nesse* clone. Se clonaste o repo original, esse `origin`
+é `lucianomilani/AI-ditoria` e não vais ter permissão de push. Para
+teres o teu próprio dashboard público:
+
+1. **Fork** este repo no GitHub (botão *Fork*, canto superior direito).
+2. Clona o **teu fork**, não o original:
+   `git clone https://github.com/<o-teu-user>/AI-ditoria.git`
+3. Aponta o `STUDIO_REPO_PATH.md` (passo 1 acima) para este clone do
+   teu fork.
+4. No GitHub, no teu fork: **Settings → Pages → Source: Deploy from a
+   branch → Branch: `main`, pasta `/docs` → Save**. (Precisa do repo
+   ser público, a menos que tenhas GitHub Pro/Enterprise.)
+5. Ao fim de uns minutos o teu dashboard fica em
+   `https://<o-teu-user>.github.io/AI-ditoria/security-audit/studio/`.
+6. Corre a skill num projeto qualquer — o commit + push do passo 8 vai
+   para o teu fork, o GitHub Pages faz redeploy automático, e o
+   dashboard atualiza sozinho.
+
+Sem este passo 3, a skill continua a auditar código na mesma — só não
+tens onde ver o resultado publicado (ou publicas sem querer no repo
+errado, se `STUDIO_REPO_PATH.md` ainda apontar para outro clone).
 
 ### O fluxo: analisar e gerar relatórios bem estruturados
 
@@ -124,8 +214,7 @@ mas **corre** a partir de `~/.claude/skills/security-audit/` (config
 local do Claude Code), porque precisa de correr sobre *qualquer* outro
 projeto, não só este. Este repo guarda a fonte do skill e o resultado
 publicado; instalar é copiar a pasta para o sítio certo (ver
-["Correr esta ferramenta noutro PC"](#correr-esta-ferramenta-noutro-pc)
-abaixo).
+["Instalação e utilização"](#instalação-e-utilização) acima).
 
 ### O dashboard
 
@@ -225,25 +314,11 @@ existe. Se o projeto auditado precisar de LGPD (Brasil), CCPA (EUA) ou
 outra legislação equivalente, isso é escopo diferente e o skill diz
 isso explicitamente em vez de fingir que é a mesma coisa.
 
-### Correr esta ferramenta noutro PC
-
-O skill vive dentro deste repo, em `skills/security-audit/`, mas o
-Claude Code só o encontra se estiver em `~/.claude/skills/`. Para o
-teres numa máquina nova:
-
-1. Clona este repo (`AI-ditoria`).
-2. Copia (ou symlink) `skills/security-audit/` para
-   `~/.claude/skills/security-audit/`.
-3. Edita a primeira linha de `~/.claude/skills/security-audit/STUDIO_REPO_PATH.md`
-   para apontar para o caminho local deste clone.
-
-Sem o passo 3, o skill funciona à mesma para auditar código — só não sabe onde publicar o resultado.
-
 ### Licença
 
-Código e conteúdo deste repositório sob **CC BY-NC 4.0** — uso e
-redistribuição livres, incluindo modificação, desde que com atribuição
-e sem fins comerciais. Ver [LICENSE](LICENSE).
+Código e conteúdo deste repositório sob **MIT** — usa, copia, modifica,
+redistribui e usa comercialmente à vontade, desde que mantenhas o aviso
+de copyright. Ver [LICENSE](LICENSE).
 
 ---
 
@@ -288,6 +363,99 @@ the methodology.
 # 3. open the dashboard
 open https://lucianomilani.github.io/AI-ditoria/security-audit/studio/
 ```
+
+This only works once the skill is installed and the dashboard is set
+up — see the next section.
+
+### Installation and usage
+
+Three steps: install the skill on your system, use it on a project,
+and (optionally) get your own public dashboard instead of publishing
+into this repo.
+
+#### 1. Install the skill
+
+The skill's source lives in this repo, under `skills/security-audit/`.
+Claude Code only recognizes it in `~/.claude/skills/`. Two ways to
+install it:
+
+**A — full clone** (also gets you the dashboard, useful if you'll
+publish your own reports into this repo or a fork):
+
+```bash
+git clone https://github.com/<your-user>/AI-ditoria.git
+cp -r AI-ditoria/skills/security-audit ~/.claude/skills/security-audit
+```
+
+(use a symlink instead of `cp` if you want skill updates to arrive
+with a plain `git pull` on the clone, without re-copying.)
+
+**B — just the skill folder** (you don't want the dashboard or the
+report history, only the audit methodology):
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/<your-user>/AI-ditoria.git
+cd AI-ditoria
+git sparse-checkout set skills/security-audit
+cp -r skills/security-audit ~/.claude/skills/security-audit
+```
+
+No `git` available? A one-liner alternative (via subversion, which
+GitHub exposes for any public repo):
+
+```bash
+svn export https://github.com/<your-user>/AI-ditoria/trunk/skills/security-audit ~/.claude/skills/security-audit
+```
+
+Either way, the result is the same: the `security-audit/` folder
+inside `~/.claude/skills/`, ready to use.
+
+Then edit the first line of
+`~/.claude/skills/security-audit/STUDIO_REPO_PATH.md` to the absolute
+path of that clone (e.g. `/home/you/AI-ditoria`) — that's where the
+skill writes and publishes reports.
+
+#### 2. Use the skill
+
+Inside **any** project you want to audit (it doesn't need to be this
+repo, or related to it):
+
+```bash
+cd /path/to/the/project/to/audit
+/security-audit
+```
+
+It follows the flow described in the next section: detects the stack,
+audits line by line, generates and validates `findings.json`,
+publishes to the dashboard pointed at by `STUDIO_REPO_PATH.md`, and
+commits + pushes there automatically.
+
+#### 3. Get your own dashboard (fork)
+
+By default, the skill's step 8 publishes into the clone pointed at by
+`STUDIO_REPO_PATH.md` and runs `git push` — that goes to whatever
+`origin` is configured on *that* clone. If you cloned the original
+repo, that `origin` is `lucianomilani/AI-ditoria`, and you won't have
+push access. To get your own public dashboard:
+
+1. **Fork** this repo on GitHub (the *Fork* button, top right).
+2. Clone **your fork**, not the original:
+   `git clone https://github.com/<your-user>/AI-ditoria.git`
+3. Point `STUDIO_REPO_PATH.md` (step 1 above) at this clone of your
+   fork.
+4. On GitHub, in your fork: **Settings → Pages → Source: Deploy from a
+   branch → Branch: `main`, folder `/docs` → Save**. (Requires the
+   repo to be public, unless you're on GitHub Pro/Enterprise.)
+5. After a few minutes your dashboard is live at
+   `https://<your-user>.github.io/AI-ditoria/security-audit/studio/`.
+6. Run the skill on any project — the commit + push from step 8 goes
+   to your fork, GitHub Pages redeploys automatically, and the
+   dashboard updates on its own.
+
+Without this step 3, the skill still audits code just fine — you just
+have nowhere to see the published result (or you might publish into
+the wrong repo by accident, if `STUDIO_REPO_PATH.md` still points at a
+different clone).
 
 ### The flow: analyze and generate well-structured reports
 
@@ -349,8 +517,7 @@ from `~/.claude/skills/security-audit/` (local Claude Code config),
 because it needs to run against *any* project, not just this one. This
 repo holds the skill's source and the published result; installing it
 means copying the folder into place (see
-["Running this tool on another machine"](#running-this-tool-on-another-machine)
-below).
+["Installation and usage"](#installation-and-usage) above).
 
 ### The dashboard
 
@@ -449,24 +616,8 @@ needs LGPD (Brazil), CCPA (US), or other equivalent legislation, that
 is a different scope, and the skill says so explicitly instead of
 pretending it's the same thing.
 
-### Running this tool on another machine
-
-The skill lives inside this repo, in `skills/security-audit/`, but
-Claude Code only finds it in `~/.claude/skills/`. To set it up on a new
-machine:
-
-1. Clone this repo (`AI-ditoria`).
-2. Copy (or symlink) `skills/security-audit/` to
-   `~/.claude/skills/security-audit/`.
-3. Edit the first line of
-   `~/.claude/skills/security-audit/STUDIO_REPO_PATH.md` to point to
-   that clone's local path.
-
-Without step 3, the skill still works to audit code — it just doesn't
-know where to publish the result.
-
 ### License
 
-Code and content in this repository are under **CC BY-NC 4.0** — free
-to use and redistribute, including modification, provided there's
-attribution and no commercial use. See [LICENSE](LICENSE).
+Code and content in this repository are under **MIT** — use, copy,
+modify, redistribute, and use commercially, as long as you keep the
+copyright notice. See [LICENSE](LICENSE).
