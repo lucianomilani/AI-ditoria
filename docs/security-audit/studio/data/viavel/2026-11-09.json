@@ -1,0 +1,286 @@
+{
+  "project": "Viável",
+  "audit_date": "2026-11-09",
+  "scope": "Análise leve do monorepo viavel (apps/web SvelteKit, apps/worker Node, packages/shared, pb/ PocketBase: regras de coleção efetivas, hooks, migrações) e da exposição pública atual em https://viavel.milani.link (Cloudflare Tunnel → Vite dev). Verificações dirigidas por categoria, não leitura integral de todos os ficheiros.",
+  "stack": [
+    { "layer": "Frontend/SSR", "detail": "SvelteKit 2.70 + Svelte 5.57, Tailwind; adapter node; em teste servido pelo Vite dev (--host) atrás de Cloudflare Tunnel" },
+    { "layer": "Backend de dados", "detail": "PocketBase 0.23.5 (SQLite, regras de coleção por tenant/papel, hooks JSVM em pb/pb_hooks), proxy público /pb" },
+    { "layer": "Worker", "detail": "Node 24 (apps/worker), HTTP em 127.0.0.1:3100 com Bearer token; filas, emails, campanhas, retenção do canal de integridade" },
+    { "layer": "Partilhado", "detail": "packages/shared: zod 4, isomorphic-dompurify 4.4 (DOMPurify 3.4.15), AES-256-GCM, HMAC de sessão do portal" },
+    { "layer": "Deploy", "detail": "systemd/pm2 + nginx (deploy/README.md), litestream para backup do SQLite; sem CI/GitHub Actions no repositório" }
+  ],
+  "methodology_note": "Análise leve pedida pelo utilizador. Regras de coleção lidas de uma cópia do data.db de dev (não do PB a correr); cabeçalhos e exposição testados com pedidos GET/HEAD ao tunnel, sem criar nem alterar dados; pnpm audit --prod; greps dirigidos (segredos, {@html}, fetch servidor, eval/child_process, scripts de instalação). IDOR não foi percorrido rota a rota — fica nos limites.",
+  "categories": [
+    { "id": 1, "name": "Banco sem tranca (isolamento e injeção)", "maturity": 70, "applicable": true, "na_reason": null },
+    { "id": 2, "name": "Permissão definida no navegador", "maturity": 75, "applicable": true, "na_reason": null },
+    { "id": 3, "name": "IDOR", "maturity": 70, "applicable": true, "na_reason": null },
+    { "id": 4, "name": "Chaves expostas", "maturity": 85, "applicable": true, "na_reason": null },
+    { "id": 5, "name": "Inputs sem tratamento (XSS)", "maturity": 80, "applicable": true, "na_reason": null },
+    { "id": 6, "name": "Autenticação, sessões e criptografia", "maturity": 75, "applicable": true, "na_reason": null },
+    { "id": 7, "name": "SSRF", "maturity": 90, "applicable": true, "na_reason": null },
+    { "id": 8, "name": "Integridade de escrita (CSRF/path/upload/concorrência)", "maturity": 70, "applicable": true, "na_reason": null },
+    { "id": 9, "name": "Rate limiting, força bruta e exhaustion", "maturity": 45, "applicable": true, "na_reason": null },
+    { "id": 10, "name": "Dependências, IaC e supply-chain", "maturity": 55, "applicable": true, "na_reason": null },
+    { "id": 11, "name": "Vazamento de informação", "maturity": 50, "applicable": true, "na_reason": null },
+    { "id": 12, "name": "Compliance RGPD", "maturity": 65, "applicable": true, "na_reason": null },
+    { "id": 13, "name": "Código malicioso / backdoor", "maturity": 95, "applicable": true, "na_reason": null }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "category": 9,
+      "severity": "alta",
+      "file": "pb/pb_migrations/1768900010_rate_limit_password_reset.js",
+      "line": 16,
+      "cwe": "CWE-307",
+      "owasp": "A07:2021 Identification and Authentication Failures",
+      "desc": "O PocketBase só tem rate limit para a recuperação da palavra-passe; o login (auth-with-password) e as criações não têm limite no PB, e o proxy público /pb deixa chamá-lo diretamente, contornando o limitador de login da app web.",
+      "code": "const RULES = [\n  { label: \"*:requestPasswordReset\", audience: \"\", duration: 300, maxRequests: 60 },\n  { label: \"*:confirmPasswordReset\", audience: \"\", duration: 300, maxRequests: 60 }\n];",
+      "why": "apps/web/src/lib/server/login-rate-limit.ts limita o formulário /login, mas POST /pb/api/collections/users/auth-with-password chega ao PB sem passar por ele (vite.config.ts:96 e deploy/README.md:45 encaminham /pb inteiro; só o reset é recusado no nginx).",
+      "impact": "Força bruta/password spraying ilimitada às contas de colaboradores pela internet; também flood de criações nas coleções com createRule pública.",
+      "fix": "No proxy público /pb (nginx em produção e middleware do Vite no tunnel), recusar auth-with-password/auth-with-otp/auth-refresh de fora da app, como já se faz para o reset; ou ativar *:auth no PB com trustedProxy configurado para ler o IP real (X-Forwarded-For/CF-Connecting-IP), para o limite ser por cliente e não global.",
+      "acceptance": [
+        "curl -X POST https://<domínio>/pb/api/collections/users/auth-with-password devolve 403/404 ou 429 após N tentativas",
+        "Login pela app web continua a funcionar e o limitador da app continua a valer",
+        "Teste e2e cobre a recusa do login direto em /pb"
+      ],
+      "rgpd_article": "Art. 32",
+      "exploitability_notes": "Alcançável hoje em https://viavel.milani.link/pb (GET /pb/api/health respondeu 200 pelo tunnel)."
+    },
+    {
+      "id": "F2",
+      "category": 11,
+      "severity": "media",
+      "file": "apps/web/vite.config.ts",
+      "line": 89,
+      "cwe": "CWE-209",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "desc": "O ambiente de testes público (viavel.milani.link) serve o Vite em modo dev: devolve stack traces com caminhos absolutos do disco, o código-fonte compilado dos componentes e o cliente HMR.",
+      "code": "allowedHosts: [\".monkeycode-ai.live\", \"viavel.milani.link\"],",
+      "why": "GET /@fs/.../apps/web/src/lib/server/session.ts?raw devolveu página de erro com stack de file:///var/home/lmilani/Documentos/IDE/viavel/node_modules/...; GET /src/routes/+layout.svelte devolve o módulo compilado. O /@fs a ficheiros sensíveis (.env, data.db, /etc/passwd) deu 403 — isso está bem.",
+      "impact": "Reconhecimento facilitado (estrutura do repo, versões exatas, nomes de utilizador do SO, lógica do cliente); superfície maior do que um build de produção.",
+      "fix": "Servir o tunnel a partir de um build (vite build + node build/ ou vite preview) em vez do dev server, ou proteger o hostname com Cloudflare Access enquanto for ambiente de testes.",
+      "acceptance": [
+        "GET https://viavel.milani.link/src/routes/+layout.svelte devolve 404",
+        "Erros 500 pelo tunnel não incluem stack nem caminhos absolutos",
+        "/@vite/client não está disponível pelo tunnel"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Só no ambiente de testes atual (systemd viavel-stack + cloudflared); produção segundo deploy/README.md usa build node."
+    },
+    {
+      "id": "F3",
+      "category": 11,
+      "severity": "media",
+      "file": "apps/web/src/hooks.server.ts",
+      "line": 80,
+      "cwe": "CWE-1021",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "desc": "Os cabeçalhos de segurança (CSP, X-Frame-Options/frame-ancestors, Referrer-Policy, Permissions-Policy) só são aplicados ao canal de integridade e à redefinição da palavra-passe; o site público, o portal e o CRM saem sem eles.",
+      "code": "  if (integrity) return withIntegrityHeaders(response, integrityPublic, dev);\n  // Recuperação da palavra-passe: o token vai no URL de /login/redefinir/…\n  if (isPasswordResetPath(path)) {",
+      "why": "curl -I https://viavel.milani.link/ devolveu apenas cache-control, strict-transport-security e x-content-type-options; svelte.config.js não define kit.csp.",
+      "impact": "Sem defesa em profundidade contra XSS (há {@html} de conteúdo do CMS) e o CRM pode ser embebido em iframe (clickjacking).",
+      "fix": "Definir kit.csp (modo hash/nonce) em svelte.config.js e acrescentar no handle global X-Frame-Options: DENY (ou frame-ancestors 'none'), Referrer-Policy: strict-origin-when-cross-origin e Permissions-Policy mínima; validar que os embeds multimédia do CMS continuam a funcionar.",
+      "acceptance": [
+        "curl -I / e /crm devolvem Content-Security-Policy e frame-ancestors 'none'",
+        "Site, CRM, portal e editor de blocos sem violações de CSP na consola",
+        "Teste unitário no hooks.server.test.ts cobre os cabeçalhos globais"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F4",
+      "category": 1,
+      "severity": "media",
+      "file": "pb/pb_migrations/1750000020_created_settings.js",
+      "line": 11,
+      "cwe": "CWE-639",
+      "owasp": "A01:2021 Broken Access Control",
+      "desc": "Várias coleções têm list/view filtradas por tenant mas update/delete só por papel, sem tenant = @request.auth.tenant (settings, campaigns, lenders, lender_products, products, scoring_rules, teams, team_members, territories, consents, optouts, departments, chat_intents, faqs, testimonials, public_people).",
+      "code": "    updateRule: \"@request.auth.role = 'admin' || @request.auth.role = 'gestor'\",\n    deleteRule: \"@request.auth.role = 'admin' || @request.auth.role = 'gestor'\",",
+      "why": "No PocketBase as regras de update/delete são avaliadas sozinhas (não herdam a viewRule); o estado efetivo lido do data.db confirma, p.ex. campaigns U/D = papel apenas.",
+      "impact": "Com mais de um tenant, um admin/gestor de um tenant pode alterar ou apagar configurações, campanhas, bancos ou consentimentos de outro se souber o id. Hoje há um único tenant, por isso o risco é latente.",
+      "fix": "Acrescentar `&& tenant = @request.auth.tenant` (e, no create, `@request.body.tenant = @request.auth.tenant`) a todas as regras de escrita das coleções com campo tenant, numa migração; acrescentar caso em pb/tests/*-rules.cjs com dois tenants.",
+      "acceptance": [
+        "Todas as regras C/U/D de coleções com campo tenant incluem o filtro de tenant",
+        "Teste PB com tenant A e B: admin de A recebe 404 ao PATCH/DELETE de registo de B"
+      ],
+      "rgpd_article": "Art. 32",
+      "exploitability_notes": "Requer segundo tenant e conta admin/gestor/marketing num deles."
+    },
+    {
+      "id": "F5",
+      "category": 9,
+      "severity": "baixa",
+      "file": "pb/pb_migrations/1752000040_created_contacts.js",
+      "line": 13,
+      "cwe": "CWE-770",
+      "owasp": "A04:2021 Insecure Design",
+      "desc": "contacts, consents, optouts e funnel_events têm createRule pública (\"\") e são alcançáveis diretamente por /pb, sem a validação, deduplicação e limites que a app aplica em apps/web/src/lib/server/lead.ts.",
+      "code": "    createRule: \"\",",
+      "why": "A app cria estes registos com o cliente anónimo (lead.ts:97 `pb.collection(\"contacts\").create(data)`), o que obriga a regra pública; o proxy /pb expõe a mesma regra a qualquer pessoa.",
+      "impact": "Inserção em massa de contactos/consentimentos falsos e opt-outs de terceiros (suprimir comunicações a clientes reais) sem passar pela app.",
+      "fix": "Passar estas criações para o cliente de serviço (servicePb, já usado em lead.ts:93) e fechar createRule a null; ou bloquear POST /pb/api/collections/(contacts|consents|optouts|funnel_events)/records no proxy público.",
+      "acceptance": [
+        "POST direto a /pb/api/collections/contacts/records sem sessão é recusado",
+        "Simulador, chat, opt-out e funil continuam a criar registos (e2e verdes)"
+      ],
+      "rgpd_article": "Art. 5(1)(d)",
+      "exploitability_notes": "Alcançável enquanto /pb for público; agravado pela ausência de *:create no rate limit do PB (F1)."
+    },
+    {
+      "id": "F6",
+      "category": 10,
+      "severity": "media",
+      "file": "packages/shared/package.json",
+      "line": 15,
+      "cwe": "CWE-1395",
+      "owasp": "A06:2021 Vulnerable and Outdated Components",
+      "desc": "pnpm audit --prod reporta 22 avisos (1 crítico, 11 altos): dompurify 3.4.15, undici 8.10.2 (via isomorphic-dompurify/jsdom), devalue 5.9.2 (via svelte), zod 4.6.5, source-map-js 1.2.1.",
+      "code": "    \"isomorphic-dompurify\": \"^4.4.0\",",
+      "why": "O crítico do DOMPurify (GHSA-c6gr-qvv4-5v3f) depende de SAFE_FOR_TEMPLATES/IN_PLACE, que packages/shared/src/sanitize.ts:4 não usa (`DOMPurify.sanitize(html)` com config por omissão) — não alcançável hoje. devalue (serialização SSR do SvelteKit) e zod (validação de input público) são alcançáveis em princípio.",
+      "impact": "Possível DoS por input público (zod/devalue) e risco futuro se a configuração do sanitizador mudar.",
+      "fix": "pnpm up -r isomorphic-dompurify svelte @sveltejs/kit zod e, se preciso, pnpm.overrides para dompurify>=3.4.17, undici>=8.12.2, devalue>=5.9.3; correr typecheck + vitest + e2e.",
+      "acceptance": [
+        "pnpm audit --prod sem crítico/alto",
+        "pnpm typecheck, pnpm test e e2e verdes"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": "Crítico DOMPurify não alcançável com a configuração atual."
+    },
+    {
+      "id": "F7",
+      "category": 10,
+      "severity": "baixa",
+      "file": "scripts/fetch-pocketbase.sh",
+      "line": 19,
+      "cwe": "CWE-494",
+      "owasp": "A08:2021 Software and Data Integrity Failures",
+      "desc": "O binário do PocketBase é descarregado sem verificação de checksum, e a versão fixada (0.23.5) é antiga.",
+      "code": "curl -fsSL -o \"/tmp/${ASSET}\" \"https://github.com/pocketbase/pocketbase/releases/download/v${VERSION}/${ASSET}\"\nunzip -o \"/tmp/${ASSET}\" -d pb",
+      "why": "Não há sha256sum -c contra checksums.txt da release; o ficheiro vai para /tmp com nome previsível.",
+      "impact": "Binário adulterado (release comprometida, cache/proxy) seria executado com acesso total aos dados; versão antiga acumula correções de segurança em falta.",
+      "fix": "Fixar o SHA-256 esperado por arquitetura no script e validar com sha256sum -c antes do unzip; usar mktemp; planear upgrade do PB (testar migrações e hooks).",
+      "acceptance": [
+        "Script falha se o checksum não coincidir",
+        "Versão do PB atualizada e suite pb/tests verde"
+      ],
+      "rgpd_article": null,
+      "exploitability_notes": null
+    },
+    {
+      "id": "F8",
+      "category": 11,
+      "severity": "baixa",
+      "file": "apps/web/vite.config.ts",
+      "line": 89,
+      "cwe": "CWE-350",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "desc": "allowedHosts do Vite ainda aceita qualquer subdomínio de .monkeycode-ai.live, resto do bootstrap inicial (commit 82ba2ba) sem ligação ao projeto.",
+      "code": "allowedHosts: [\".monkeycode-ai.live\", \"viavel.milani.link\"],",
+      "why": "allowedHosts é a proteção do Vite contra DNS rebinding; um domínio de terceiros na lista anula-a para quem o controlar.",
+      "impact": "Quem controla esse domínio pode apontá-lo para a máquina e ler o dev server pelo browser de uma vítima na rede.",
+      "fix": "Remover \".monkeycode-ai.live\" da lista.",
+      "acceptance": ["allowedHosts contém só viavel.milani.link (e localhost implícito)"],
+      "rgpd_article": null,
+      "exploitability_notes": "Só relevante com o dev server à escuta em --host."
+    },
+    {
+      "id": "F9",
+      "category": 6,
+      "severity": "informativa",
+      "file": "apps/worker/src/index.ts",
+      "line": 252,
+      "cwe": "CWE-208",
+      "owasp": "A07:2021 Identification and Authentication Failures",
+      "desc": "O Bearer token do worker é comparado com !== (não em tempo constante), repetido em 5 handlers.",
+      "code": "    if (!token || token !== process.env.VIAVEL_WORKER_TOKEN) {",
+      "why": "O worker só escuta em 127.0.0.1:3100, por isso um ataque de tempo é pouco prático; mas o padrão está duplicado e o token vazio só é recusado porque !token vem primeiro.",
+      "impact": "Baixo; risco de regressão se o worker for exposto ou se a variável faltar.",
+      "fix": "Extrair helper requireWorkerToken(req) com timingSafeEqual e falha de arranque se VIAVEL_WORKER_TOKEN estiver vazio.",
+      "acceptance": ["Um único helper com timingSafeEqual usado pelos 5 handlers", "Worker não arranca sem VIAVEL_WORKER_TOKEN"],
+      "rgpd_article": null,
+      "exploitability_notes": "Worker não exposto fora de localhost."
+    },
+    {
+      "id": "R1",
+      "category": 12,
+      "severity": "media",
+      "file": "apps/worker/src/index.ts",
+      "line": 184,
+      "cwe": "CWE-359",
+      "owasp": "A04:2021 Insecure Design",
+      "desc": "Só existe retenção/apagamento automático para o canal de integridade; não foi encontrada política de retenção para leads, contactos, simulações, documentos e conversas de chat.",
+      "code": "setInterval(runIntegrityRetention, integrityRetentionIntervalMs);",
+      "why": "As tarefas periódicas do worker (runQueue, runDueCampaigns, runDueStageEmails, publishDueContent, …) não incluem expiração de dados de leads perdidos/inativos; pb/pb_hooks/cron.js só faz sla_escalation.",
+      "impact": "Dados pessoais e financeiros (rendimentos, NIF, documentos) guardados indefinidamente, contra a limitação da conservação.",
+      "fix": "Definir prazos por estado (ex.: lead perdido/sem consentimento ao fim de X meses) com o responsável pelo tratamento e implementar job de anonimização/apagamento em cascata, com registo em audit_log.",
+      "acceptance": [
+        "Política de retenção documentada (docs/legal) e refletida no aviso de privacidade",
+        "Job periódico apaga/anonimiza registos fora do prazo, com testes"
+      ],
+      "rgpd_article": "Art. 5(1)(e)",
+      "exploitability_notes": null
+    }
+  ],
+  "strengths": [
+    { "evidence": "pb (regras efetivas de leads, lead_documents, appointments) - list/view/update filtram por tenant, owner, equipa/departamento e lead_triage; create obriga @request.body.tenant = @request.auth.tenant e stage novo", "note": "Isolamento por tenant e por âmbito de visualização/edição bem modelado nas coleções centrais.", "applies_to": ["security", "rgpd"] },
+    { "evidence": "users (regra update efetiva) - utilizador comum não pode alterar role, tenant, teams, active, lead_*_scope nem integrity_officer", "note": "Escalada de privilégios pelo próprio perfil bloqueada no servidor.", "applies_to": ["security"] },
+    { "evidence": "apps/web/vite.config.ts:41 - /pb/_ e /pb/api/collections/_superusers devolvem 404 de fora; /@fs a .env, data.db e /etc/passwd deu 403", "note": "Painel e login de superuser fechados ao tunnel.", "applies_to": ["security"] },
+    { "evidence": "packages/shared/src/credentials.ts:19 - AES-256-GCM com IV aleatório (randomBytes) e auth tag", "note": "Cifra de credenciais com primitiva validada.", "applies_to": ["security", "rgpd"] },
+    { "evidence": "packages/shared/src/portal-access.ts:39 - verificação HMAC com timingSafeEqual e comparação de comprimento", "note": "Cookie de sessão do portal resistente a falsificação e ataques de tempo.", "applies_to": ["security"] },
+    { "evidence": "apps/web/src/routes/(site)/blog/[slug]/+page.server.ts:34 - body: sanitizeHtml(article.body)", "note": "HTML do CMS sanitizado (DOMPurify) no servidor antes do {@html}.", "applies_to": ["security"] },
+    { "evidence": "apps/web/src/hooks.server.ts:30 - assertSameOrigin e cabeçalhos próprios no canal de integridade; sessão do CRM nunca lida no canal", "note": "Canal de denúncia endurecido (Lei 93/2021).", "applies_to": ["security", "rgpd"] },
+    { "evidence": "apps/web/src/lib/server/login-rate-limit.ts - limitador de login na app; pb/pb_migrations/1768900010_rate_limit_password_reset.js - limite no reset", "note": "Limites existem na camada web (contornáveis via /pb, ver F1).", "applies_to": ["security"] },
+    { "evidence": "git ls-files - só .env.example versionado; sem segredos hardcoded fora de pb/tests (passwords de teste)", "note": "Segredos fora do repositório.", "applies_to": ["security"] },
+    { "evidence": "cópia de pb/pb_data/data.db - PRAGMA integrity_check = ok, foreign_key_check vazio, todas as migrações aplicadas", "note": "Base de dados íntegra.", "applies_to": ["security"] }
+  ],
+  "weaknesses": {
+    "security": [
+      "Proxy /pb público sem rate limit de autenticação no PocketBase (F1)",
+      "Ambiente de testes público servido pelo Vite dev (F2) e sem CSP/anti-framing global (F3)",
+      "Regras de escrita sem filtro de tenant em ~16 coleções (F4)",
+      "Dependências com avisos altos/crítico e binário PB sem checksum (F6, F7)"
+    ],
+    "rgpd": [
+      "Sem retenção automática para dados de leads/clientes (R1)",
+      "Criação pública direta de consentimentos/opt-outs fora da app (F5)"
+    ]
+  },
+  "rgpd_panel": [
+    { "id": "P1", "topic": "Consentimento (Art. 6-7)", "status": "conforme", "evidence": "apps/web/src/lib/server/lead.ts:514-538 regista consents por finalidade na captação" },
+    { "id": "P2", "topic": "Direitos dos titulares / apagamento (Art. 15-22, 17)", "status": "nao_verificada", "evidence": "Opt-out público existe (/optout); fluxo de exportação/apagamento a pedido do titular não verificado nesta análise leve" },
+    { "id": "P3", "topic": "Minimização e retenção (Art. 5)", "status": "nao_conforme", "evidence": "Só o canal de integridade tem retenção (apps/worker/src/index.ts:184) — ver R1" },
+    { "id": "P4", "topic": "Dados sensíveis (Art. 9)", "status": "nao_verificada", "evidence": "Fluxos centrais tratam dados financeiros e de identificação; ausência de categorias especiais do Art. 9 (ex.: saúde em seguros) não confirmada campo a campo" },
+    { "id": "P5", "topic": "Decisão automatizada (Art. 22)", "status": "nao_verificada", "evidence": "Há scoring_rules e atribuição automática de leads; impacto jurídico sobre o titular não avaliado" },
+    { "id": "P6", "topic": "Transparência (Art. 12-13)", "status": "nao_verificada", "evidence": "Bloco legal no rodapé e avisos no resumo existem; texto da política não revisto" },
+    { "id": "P7", "topic": "Segurança do tratamento (Art. 32)", "status": "nao_conforme", "evidence": "F1 (força bruta via /pb) e F4 (escrita sem tenant)" },
+    { "id": "P8", "topic": "Processadores/terceiros (Art. 28)", "status": "nao_verificada", "evidence": "Cloudflare, Telegram, fornecedor de email e LLM do chat: contratos não verificáveis no código" }
+  ],
+  "scans": [
+    { "tool": "pnpm audit", "command": "pnpm audit --prod", "result": "22 avisos (1 crítico, 11 altos, 6 moderados, 4 baixos) em dompurify, undici, devalue, zod, source-map-js" },
+    { "tool": "sqlite3 (Python)", "command": "PRAGMA integrity_check; PRAGMA foreign_key_check; regras de _collections (cópia do data.db)", "result": "Integridade ok; 16 coleções com escrita sem filtro de tenant; 4 com createRule pública" },
+    { "tool": "curl", "command": "curl -sI https://viavel.milani.link/ ; GET /pb/api/health ; GET /@fs/... ; GET /src/routes/+layout.svelte", "result": "Só HSTS e nosniff; /pb público; /@fs sensível 403; fonte do cliente e stack traces expostos pelo Vite dev" },
+    { "tool": "git grep", "command": "git grep -nE \"(api[_-]?key|secret|password|token)\\s*[:=]\" ; \"{@html\" ; \"child_process|eval\\(|new Function\"", "result": "Sem segredos reais versionados; {@html} só com conteúdo sanitizado ou JSON-LD; sem padrões maliciosos" }
+  ],
+  "sbom": [
+    { "name": "@sveltejs/kit", "version": "2.70.3", "type": "production" },
+    { "name": "svelte", "version": "5.57.1", "type": "production (devalue 5.9.2 vulnerável)" },
+    { "name": "pocketbase (SDK)", "version": "0.28.1", "type": "production" },
+    { "name": "pocketbase (servidor)", "version": "0.23.5", "type": "production, desatualizado" },
+    { "name": "isomorphic-dompurify", "version": "4.4.0", "type": "production (dompurify 3.4.15, undici 8.10.2 vulneráveis)" },
+    { "name": "zod", "version": "4.6.5", "type": "production, aviso alto" },
+    { "name": "marked", "version": "15.x", "type": "production" },
+    { "name": "pdf-lib", "version": "1.17.1", "type": "production (worker)" }
+  ],
+  "limits": [
+    "Análise leve: IDOR não percorrido handler a handler nas rotas de apps/web/src/routes/api e +page.server.ts",
+    "Cruzamento completo de gates de UI (cat. 2) com endpoints não feito; confiança assente nas regras do PB",
+    "Hooks JSVM lidos só por grep; uploads (maxSize/mimeTypes por campo) não auditados",
+    "MFA do PocketBase para contas admin não verificado",
+    "Configuração real do nginx de produção não disponível (só deploy/README.md)",
+    "Nenhum teste ativo de escrita contra o sistema (sem criar dados na BD de dev)"
+  ],
+  "issue_groups": [["F1"], ["F2", "F8"], ["F3"], ["F4"], ["F5"], ["F6", "F7"], ["F9"], ["R1"]]
+}
